@@ -1,0 +1,4134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>☠ How To Rebirth</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://apis.google.com/js/api.js"></script>
+<script>
+// ══════════════════════════════════════════════════
+//  GOOGLE DRIVE STORAGE — uploads files to Drive,
+//  stores public URLs in Firestore so all users see them
+// ══════════════════════════════════════════════════
+
+// ── IMPORTANT: Set this to your shared Drive folder ID ──
+// 1. Create a folder in your Google Drive
+// 2. Share it as "Anyone with link can view"
+// 3. Paste the folder ID here (from the URL: drive.google.com/drive/folders/FOLDER_ID)
+const DRIVE_FOLDER_ID = '1xylth3wOXOw1KgyeNUsJqAIlOaLs0Sx8';
+
+// OAuth scope needed to upload files
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+// Your Google OAuth client ID (same project as Firebase)
+const GOOGLE_CLIENT_ID = '931388573936-1k720ft0dpur835ilomeq3ld3hdqps6u.apps.googleusercontent.com';
+
+// Public API key — used for reading public Drive files WITHOUT requiring sign-in.
+// Create one at: console.cloud.google.com → APIs & Services → Credentials → Create API Key
+// Restrict it to the Drive API and your domain for security.
+const DRIVE_API_KEY = 'AIzaSyBLZfVie22Xs4ugjcgIw4IWjhhOrYiL0e8'; // ← paste your API key here
+
+let _driveTokenClient = null;
+let _driveAccessToken = null;
+
+// Load GIS (Google Identity Services) for token
+function loadDriveAuth() {
+  return new Promise((resolve) => {
+    if (_driveAccessToken) { resolve(_driveAccessToken); return; }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.onload = () => {
+      _driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: (resp) => {
+          if (resp.access_token) {
+            _driveAccessToken = resp.access_token;
+            resolve(resp.access_token);
+          }
+        }
+      });
+      _driveTokenClient.requestAccessToken({ prompt: '' });
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// ── VIDEO COMPRESSION ────────────────────────────
+// Re-encodes a video File using MediaRecorder at a lower bitrate.
+// Returns a new Blob (video/webm). Falls back to original if browser lacks support.
+// onProgress(pct 0-100) called during encoding.
+async function compressVideo(file, onProgress) {
+  // Check support
+  if (typeof MediaRecorder === 'undefined' || !window.VideoDecoder) {
+    // Older browsers: skip compression, return original
+    onProgress && onProgress(100);
+    return file;
+  }
+
+  // Target bitrate: ~1 Mbps video + 128 kbps audio = ~1.13 Mbps total
+  // For files already small (<30 MB) skip compression to save time
+  if (file.size < 30 * 1024 * 1024) {
+    onProgress && onProgress(100);
+    return file;
+  }
+
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+
+    video.addEventListener('loadedmetadata', () => {
+      const duration = video.duration || 0;
+      const canvas = document.createElement('canvas');
+      // Scale down: max width 1280, keep aspect
+      const maxW = 1280;
+      const scale = video.videoWidth > maxW ? maxW / video.videoWidth : 1;
+      canvas.width  = Math.round(video.videoWidth  * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      const ctx = canvas.getContext('2d');
+
+      // Choose supported codec
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+          ? 'video/webm;codecs=vp8,opus'
+          : 'video/webm';
+
+      const chunks = [];
+      let stream;
+      try {
+        stream = canvas.captureStream(30);
+        // Add audio track if possible
+        if (video.captureStream) {
+          const vs = video.captureStream();
+          vs.getAudioTracks().forEach(t => stream.addTrack(t));
+        }
+      } catch(e) {
+        // captureStream not supported — return original
+        URL.revokeObjectURL(url);
+        onProgress && onProgress(100);
+        resolve(file);
+        return;
+      }
+
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 900_000,
+          audioBitsPerSecond: 128_000
+        });
+      } catch(e) {
+        URL.revokeObjectURL(url);
+        onProgress && onProgress(100);
+        resolve(file);
+        return;
+      }
+
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        URL.revokeObjectURL(url);
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type: mimeType });
+        onProgress && onProgress(100);
+        // Only use compressed version if it's actually smaller
+        resolve(blob.size < file.size ? blob : file);
+      };
+
+      recorder.start(1000); // collect in 1-second chunks
+
+      // Draw frames and track progress
+      let lastTime = -1;
+      function drawFrame() {
+        if (recorder.state !== 'recording') return;
+        if (video.currentTime !== lastTime) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          lastTime = video.currentTime;
+        }
+        if (duration > 0) {
+          onProgress && onProgress(Math.min(99, Math.round((video.currentTime / duration) * 99)));
+        }
+        if (video.ended || video.currentTime >= duration - 0.05) {
+          recorder.stop();
+        } else {
+          requestAnimationFrame(drawFrame);
+        }
+      }
+
+      video.addEventListener('ended', () => { if (recorder.state === 'recording') recorder.stop(); });
+      video.play().then(() => requestAnimationFrame(drawFrame)).catch(() => {
+        recorder.stop();
+      });
+    });
+
+    video.addEventListener('error', () => {
+      URL.revokeObjectURL(url);
+      onProgress && onProgress(100);
+      resolve(file); // fallback to original
+    });
+  });
+}
+
+// Upload a File/Blob object to Google Drive, return public URL + fileId
+// Uses resumable upload for files >5 MB (handles large files reliably)
+async function uploadToDrive(file, fileName) {
+  const token = await loadDriveAuth();
+
+  const metadata = {
+    name: fileName,
+    parents: [DRIVE_FOLDER_ID]
+  };
+
+  let fileId;
+
+  if (file.size > 5 * 1024 * 1024) {
+    // ── Resumable upload (recommended for >5 MB) ──
+    const initRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
+          'X-Upload-Content-Type': file.type || 'video/mp4',
+          'X-Upload-Content-Length': file.size
+        },
+        body: JSON.stringify(metadata)
+      }
+    );
+    if (!initRes.ok) throw new Error('Drive resumable init failed: ' + initRes.statusText);
+    const uploadUrl = initRes.headers.get('Location');
+    if (!uploadUrl) throw new Error('No upload URL returned from Drive');
+
+    // Upload in chunks of 5 MB
+    const CHUNK = 5 * 1024 * 1024;
+    let offset = 0;
+    while (offset < file.size) {
+      const end   = Math.min(offset + CHUNK, file.size);
+      const chunk = file.slice(offset, end);
+      const res   = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Range': `bytes ${offset}-${end - 1}/${file.size}`,
+          'Content-Type': file.type || 'video/mp4'
+        },
+        body: chunk
+      });
+      if (res.status === 200 || res.status === 201) {
+        const data = await res.json();
+        fileId = data.id;
+        break;
+      } else if (res.status === 308) {
+        // Incomplete — continue
+        const range = res.headers.get('Range');
+        offset = range ? parseInt(range.split('-')[1]) + 1 : end;
+      } else {
+        throw new Error('Drive chunk upload failed: ' + res.statusText);
+      }
+    }
+  } else {
+    // ── Simple multipart upload for small files ──
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
+    const uploadRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form
+      }
+    );
+    if (!uploadRes.ok) throw new Error('Drive upload failed: ' + uploadRes.statusText);
+    ({ id: fileId } = await uploadRes.json());
+  }
+
+  // Step 2: Make the file publicly readable
+  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' })
+  });
+
+  // Public image URL — works for any browser without sign-in when file is shared
+  const publicUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`;
+  // PDF URL — for pdf.js to fetch and render
+  const pdfUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${DRIVE_API_KEY}`;
+  // Embed/preview URL — for videos inside iframes
+  const embedUrl  = `https://drive.google.com/file/d/${fileId}/preview`;
+  // Direct download URL — works in <video> tags for public files without transcoding wait
+  const streamUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+  return { fileId, publicUrl, pdfUrl, embedUrl, streamUrl };
+}
+
+// Delete a file from Drive (admin cleanup)
+async function deleteFromDrive(fileId) {
+  try {
+    const token = _driveAccessToken || await loadDriveAuth();
+    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + token }
+    });
+  } catch(e) { console.warn('Drive delete failed:', e); }
+}
+</script>
+<script>
+window.IS_ADMIN = false;
+window._appReady  = false; // true once buildSidebar has run at least once
+const ADMIN_EMAIL = "amedsaad036@gmail.com";
+
+function applyRole() {
+  // Show/hide static admin-only elements
+  document.querySelectorAll(".admin-only").forEach(el => {
+    el.style.display = window.IS_ADMIN ? "" : "none";
+  });
+  // Rebuild sidebar so dynamic admin buttons (Attach PDF / Edit / Delete) appear/disappear correctly
+  if (window._appReady && typeof buildSidebar === 'function') {
+    buildSidebar();
+  }
+}
+</script>
+<script>
+// Promise that resolves once the Firebase module has finished setting up
+// window.loadDriveFileRecord etc. — used by the bootstrap to avoid a race condition.
+let _firebaseReady;
+window._firebaseReadyPromise = new Promise(res => { _firebaseReady = res; });
+</script>
+<script type="module">
+import { auth, onAuthStateChanged } from "./firebase-config.js";
+import {
+  db as firestoreDb,
+  doc, setDoc, getDoc, deleteDoc,
+  collection, query, where, getDocs
+} from "./firebase-config.js";
+
+// ══════════════════════════════════════════════════
+//  ACCESS GATE — blocks entry if user has no confirmed order
+// ══════════════════════════════════════════════════
+
+// Show the gate immediately, before auth resolves
+document.getElementById('accessGate').style.display = 'flex';
+document.getElementById('appShell').style.display   = 'none';
+
+async function checkAccess(user) {
+  const gate = document.getElementById('accessGate');
+  const gateMsg = document.getElementById('gateMsg');
+
+  // Not logged in
+  if (!user) {
+    gateMsg.innerHTML = `
+      <div class="gate-icon">🔒</div>
+      <div class="gate-title">Access Denied</div>
+      <div class="gate-sub">You need to purchase the course to access this content.</div>
+      <div class="gate-detail">Already bought it? <a href="login.html" class="gate-link">Sign in here</a></div>
+      <a href="curses.html" class="gate-btn">Go to Course Page</a>`;
+    return;
+  }
+
+  // Admin always has access
+  if (user.email === ADMIN_EMAIL) {
+    showAccessGranted(() => {
+      gate.style.display = 'none';
+      document.getElementById('appShell').style.display = '';
+    });
+    return;
+  }
+
+  // Check Firestore for a confirmed order
+  try {
+    gateMsg.innerHTML = `<div class="gate-icon" style="animation:spinSlow 2s linear infinite;">☠</div><div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>`;
+    const q = query(
+      collection(firestoreDb, 'orders'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'confirmed')
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      // Access granted — play animation then reveal app
+      showAccessGranted(() => {
+        gate.style.display = 'none';
+        document.getElementById('appShell').style.display = '';
+      });
+    } else {
+      // No confirmed order — check if pending
+      const qPending = query(
+        collection(firestoreDb, 'orders'),
+        where('userId', '==', user.uid),
+        where('status', '==', 'pending')
+      );
+      const pendingSnap = await getDocs(qPending);
+      if (!pendingSnap.empty) {
+        gateMsg.innerHTML = `
+          <div class="gate-icon">⏳</div>
+          <div class="gate-title">Order Pending</div>
+          <div class="gate-sub">Your order is being reviewed. You'll get access once it's confirmed.</div>
+          <div class="gate-detail">Check back soon or contact support.</div>
+          <a href="curses.html" class="gate-btn">Back to Course Page</a>`;
+      } else {
+        gateMsg.innerHTML = `
+          <div class="gate-icon">🚫</div>
+          <div class="gate-title">No Purchase Found</div>
+          <div class="gate-sub">You haven't purchased this course yet — nice try! 😈</div>
+          <div class="gate-detail">Buy the course to unlock full access.</div>
+          <a href="curses.html" class="gate-btn">☠ Buy the Course</a>`;
+      }
+    }
+  } catch(e) {
+    gateMsg.innerHTML = `
+      <div class="gate-icon">⚠️</div>
+      <div class="gate-title">Verification Failed</div>
+      <div class="gate-sub">Could not verify your purchase. Please try again.</div>
+      <a href="curses.html" class="gate-btn">Back to Course Page</a>`;
+  }
+}
+
+onAuthStateChanged(auth, user => {
+  window.IS_ADMIN = !!(user && user.email === ADMIN_EMAIL);
+  window._currentUserId = user ? user.uid : null;
+  checkAccess(user); // run access check on every auth state change
+  applyRole();
+  window._adminRoleReady = true;
+  // Load user's existing rating + aggregate once auth resolves
+  // initRating lives in the non-module script — must call via window
+  if (user && typeof window.initRating === 'function') window.initRating(user.uid);
+  else if (user) window._pendingRatingUid = user.uid; // app not ready yet, deferred below
+});
+
+// (auth state is handled by the access gate above)
+
+// ── Drive URL registry in Firestore ─────────────────────
+// Each file is stored as: /driveFiles/{fileKey} → { fileId, publicUrl, embedUrl, type, name }
+
+window.saveDriveFileRecord = async function(fileKey, record) {
+  await setDoc(doc(firestoreDb, 'driveFiles', fileKey), record);
+};
+
+window.loadDriveFileRecord = async function(fileKey) {
+  const snap = await getDoc(doc(firestoreDb, 'driveFiles', fileKey));
+  return snap.exists() ? snap.data() : null;
+};
+
+window.deleteDriveFileRecord = async function(fileKey) {
+  await deleteDoc(doc(firestoreDb, 'driveFiles', fileKey));
+};
+
+// Returns all driveFiles records that are videos (have a fileId and type === 'video')
+window.getAllDriveVideoRecords = async function() {
+  const snap = await getDocs(collection(firestoreDb, 'driveFiles'));
+  const records = [];
+  snap.forEach(d => {
+    const data = d.data();
+    if (data.fileId && data.type === 'video') {
+      records.push({ fileKey: d.id, ...data });
+    }
+  });
+  return records;
+};
+
+// ── App state (chapters, pdfs map, videoButtons) shared via Firestore ──
+window.saveAppState = async function(stateObj) {
+  await setDoc(doc(firestoreDb, 'appState', 'main'), stateObj);
+};
+
+window.loadAppState = async function() {
+  const snap = await getDoc(doc(firestoreDb, 'appState', 'main'));
+  return snap.exists() ? snap.data() : null;
+};
+
+// Signal that all Firestore helpers are now available
+_firebaseReady();
+
+// ── Rating helpers (Firestore) ───────────────────────────
+// Each user's rating is stored at: /ratings/{userId} → { stars, updatedAt }
+// Aggregate is stored at: /ratings/_aggregate → { total, count }
+
+window.saveRating = async function(uid, stars) {
+  const prev = await getDoc(doc(firestoreDb, 'ratings', uid));
+  const prevStars = prev.exists() ? prev.data().stars : 0;
+
+  // Update user's own doc
+  await setDoc(doc(firestoreDb, 'ratings', uid), { stars, updatedAt: Date.now() });
+
+  // Update aggregate atomically using a simple read-modify-write
+  const aggRef = doc(firestoreDb, 'ratings', '_aggregate');
+  const aggSnap = await getDoc(aggRef);
+  let { total = 0, count = 0 } = aggSnap.exists() ? aggSnap.data() : {};
+  if (prevStars > 0) { total -= prevStars; } else { count += 1; }
+  total += stars;
+  await setDoc(aggRef, { total, count });
+};
+
+window.loadUserRating = async function(uid) {
+  const snap = await getDoc(doc(firestoreDb, 'ratings', uid));
+  return snap.exists() ? snap.data().stars : 0;
+};
+
+window.loadAllRatings = async function() {
+  const snap = await getDoc(doc(firestoreDb, 'ratings', '_aggregate'));
+  return snap.exists() ? snap.data() : { total: 0, count: 0 };
+};
+
+// ══════════════════════════════════════════════════
+//  ACCESS GRANTED ANIMATION
+// ══════════════════════════════════════════════════
+function showAccessGranted(onComplete) {
+  const gate     = document.getElementById('accessGate');
+  const overlay  = document.getElementById('grantedOverlay');
+  const gateBox  = gate.querySelector('.gate-box');
+  const gateMsg  = document.getElementById('gateMsg');
+  const canvas   = document.getElementById('grantedCanvas');
+  const bookWrap = document.getElementById('bookWrap');
+  const bookLeft = document.getElementById('bookLeft');
+  const bookRight= document.getElementById('bookRight');
+  const bookGlow = document.getElementById('bookGlow');
+  const label    = document.getElementById('grantedLabel');
+  const sub      = document.getElementById('grantedSub');
+  const stamp    = document.getElementById('stampWrap');
+
+  // ── Phase 1: Shimmer + gold pulse on the gate box (0ms) ──
+  gateMsg.innerHTML = `
+    <div class="gate-icon" style="animation:spinSlow 1s linear infinite;filter:drop-shadow(0 0 12px gold);">☠</div>
+    <div class="gate-sub" style="letter-spacing:3px;color:var(--gold-light);">Seal verified…</div>`;
+  gateBox.classList.add('gold-pulse');
+
+  // ── Phase 2: Stamp appear (300ms) ──
+  setTimeout(() => {
+    gateMsg.innerHTML = '';
+    stamp.style.display = 'flex';
+    overlay.classList.add('active');
+    overlay.style.opacity = '1';
+    // Burst rings
+    for (let i = 0; i < 3; i++) {
+      const ring = document.createElement('div');
+      ring.className = 'ring-burst';
+      ring.style.animationDelay = (i * 0.18) + 's';
+      ring.style.position = 'fixed';
+      ring.style.top = '50%';
+      ring.style.left = '50%';
+      ring.style.marginTop  = '-90px';
+      ring.style.marginLeft = '-90px';
+      ring.style.zIndex = '10001';
+      ring.style.pointerEvents = 'none';
+      document.body.appendChild(ring);
+      setTimeout(() => ring.remove(), 1800);
+    }
+  }, 300);
+
+  // ── Phase 3: Book appears, stamp hides (900ms) ──
+  setTimeout(() => {
+    stamp.style.display = 'none';
+    bookWrap.style.display = 'block';
+    bookWrap.style.opacity = '0';
+    bookWrap.style.transition = 'opacity .4s';
+    requestAnimationFrame(() => { bookWrap.style.opacity = '1'; });
+  }, 900);
+
+  // ── Phase 4: Book opens (1100ms) ──
+  setTimeout(() => {
+    bookLeft.classList.add('open');
+    bookRight.classList.add('open');
+    bookGlow.classList.add('open');
+    label.classList.add('show');
+    sub.classList.add('show');
+
+    // Gold particle canvas
+    canvas.style.display = 'block';
+    startParticles(canvas);
+  }, 1100);
+
+  // ── Phase 5: Whole gate fades + app reveals (2800ms) ──
+  setTimeout(() => {
+    gate.classList.add('fade-out');
+    gate.addEventListener('animationend', () => {
+      canvas.style.display = 'none';
+      stopParticles();
+      gate.style.display = 'none';
+      overlay.style.display = 'none';
+      if (onComplete) onComplete();
+    }, { once: true });
+  }, 2800);
+}
+
+// Simple gold particle system
+let _particleRAF = null;
+function startParticles(canvas) {
+  const ctx = canvas.getContext('2d');
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const particles = [];
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const colors = ['#d4af37','#b8960c','#ffe066','#fff0a0','#dc143c','#8b0000'];
+  for (let i = 0; i < 90; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1.5 + Math.random() * 3.5;
+    particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 1.2,
+      r: 2 + Math.random() * 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      alpha: 1,
+      decay: 0.012 + Math.random() * 0.012,
+      gravity: 0.06 + Math.random() * 0.04
+    });
+  }
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.vy += p.gravity;
+      p.alpha -= p.decay;
+      if (p.alpha <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+    _particleRAF = requestAnimationFrame(draw);
+  }
+  draw();
+}
+function stopParticles() {
+  if (_particleRAF) cancelAnimationFrame(_particleRAF);
+  _particleRAF = null;
+}
+</script>
+<style>
+:root {
+  --blood:     #8b0000;
+  --crimson:   #dc143c;
+  --dark:      #060606;
+  --panel:     #0d0d0d;
+  --panel2:    #111;
+  --panel3:    #161616;
+  --border:    #1c1c1c;
+  --ash:       #555;
+  --smoke:     #2a2a2a;
+  --white:     #e8e0d5;
+  --gold:      #b8960c;
+  --gold-light:#d4af37;
+  --sidebar-w: 310px;
+  --topbar-h:  58px;
+  --danger:    #c0392b;
+  --success:   #1a6b3a;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  height:100%;
+  height:100dvh;
+  overflow:hidden;
+  background:var(--dark);color:var(--white);
+  font-family:'Cinzel',serif;
+  cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='3' fill='%238b0000'/%3E%3C/svg%3E") 10 10, auto;
+  -webkit-text-size-adjust:100%;
+}
+
+/* ══ TOPBAR ══ */
+.topbar{
+  position:fixed;top:0;left:0;right:0;
+  height:var(--topbar-h);z-index:200;
+  background:rgba(6,6,6,.97);
+  border-bottom:1px solid var(--blood);
+  display:flex;align-items:center;
+  padding:0 20px;gap:16px;
+  backdrop-filter:blur(12px);
+}
+.topbar-logo{
+  font-family:'Cinzel Decorative',cursive;
+  font-size:18px;color:var(--blood);
+  text-shadow:0 0 24px rgba(139,0,0,.7);
+  flex-shrink:0;
+}
+.topbar-divider{width:1px;height:28px;background:var(--border);}
+.course-title-bar{
+  font-size:10px;letter-spacing:4px;
+  color:var(--ash);text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+.topbar-btn{
+  display:flex;align-items:center;gap:7px;
+  background:rgba(139,0,0,.12);
+  border:1px solid var(--blood);
+  color:var(--blood);
+  padding:7px 14px;
+  font-family:'Cinzel',serif;
+  font-size:8px;letter-spacing:2px;text-transform:uppercase;
+  cursor:pointer;transition:all .3s;
+}
+.topbar-btn:hover{background:rgba(139,0,0,.25);}
+.topbar-btn.gold-btn{
+  background:rgba(184,150,12,.1);
+  border-color:var(--gold);color:var(--gold);
+}
+.topbar-btn.gold-btn:hover{background:rgba(184,150,12,.22);}
+.page-indicator{
+  font-size:9px;letter-spacing:2px;color:var(--ash);
+  text-transform:uppercase;white-space:nowrap;
+}
+.fullscreen-btn{
+  background:none;border:1px solid var(--smoke);
+  color:var(--ash);width:32px;height:32px;
+  font-size:14px;cursor:pointer;transition:all .3s;
+}
+.fullscreen-btn:hover{border-color:var(--blood);color:var(--white);}
+
+/* ══ LAYOUT ══ */
+.app{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) 1fr;
+  height:100vh;
+  height:100dvh;
+  width:100%;
+  padding-top:var(--topbar-h);
+  overflow:hidden;
+}
+
+/* ══ SIDEBAR ══ */
+.sidebar{
+  background:var(--panel);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  position:relative;
+}
+.sidebar-inner{overflow-y:auto;flex:1;}
+.sidebar-inner::-webkit-scrollbar{width:3px;}
+.sidebar-inner::-webkit-scrollbar-thumb{background:var(--smoke);}
+
+.sidebar-head{
+  padding:14px 16px 10px;
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;
+  background:var(--panel);z-index:2;
+  display:flex;align-items:center;gap:8px;
+}
+.sidebar-head h3{
+  font-size:7px;letter-spacing:5px;
+  color:var(--blood);text-transform:uppercase;
+  flex:1;
+}
+.add-chapter-btn{
+  background:rgba(139,0,0,.12);border:1px solid var(--blood);
+  color:var(--blood);padding:4px 10px;
+  font-family:'Cinzel',serif;font-size:7px;letter-spacing:1px;
+  text-transform:uppercase;cursor:pointer;transition:all .25s;
+  white-space:nowrap;
+}
+.add-chapter-btn:hover{background:rgba(139,0,0,.25);}
+
+/* chapter item */
+.chapter-item{
+  border-bottom:1px solid rgba(255,255,255,.03);
+  animation:fadeUp .4s both;
+}
+.chapter-header{
+  display:flex;align-items:flex-start;gap:0;
+  width:100%;
+  position:relative;
+}
+.chapter-btn{
+  display:flex;align-items:flex-start;gap:10px;
+  flex:1;background:none;border:none;
+  text-align:left;cursor:pointer;
+  padding:12px 14px;
+  transition:all .25s;position:relative;
+  font-family:'Cinzel',serif;
+}
+.chapter-btn::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;
+  width:0;background:var(--blood);transition:width .3s;
+}
+.chapter-btn:hover::before{width:2px;}
+.chapter-btn:hover{background:rgba(139,0,0,.06);}
+.chapter-btn.active{background:rgba(139,0,0,.1);}
+.chapter-btn.active::before{width:2px;}
+.chapter-num{
+  flex-shrink:0;
+  width:24px;height:24px;
+  background:var(--blood);
+  font-size:8px;font-weight:700;
+  color:var(--white);
+  display:flex;align-items:center;justify-content:center;
+  margin-top:2px;
+}
+.chapter-btn.active .chapter-num{
+  background:var(--crimson);
+  box-shadow:0 0 12px rgba(220,20,60,.5);
+}
+/* ── Home / Cover button ── */
+.home-btn{
+  display:flex;align-items:center;gap:10px;
+  width:100%;background:none;border:none;
+  text-align:left;cursor:pointer;
+  padding:13px 14px;
+  font-family:'Cinzel',serif;
+  transition:all .25s;position:relative;
+  border-bottom:1px solid var(--border);
+}
+.home-btn::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;
+  width:0;background:var(--gold);transition:width .3s;
+}
+.home-btn:hover::before{width:2px;}
+.home-btn:hover{background:rgba(184,150,12,.06);}
+.home-btn.active{background:rgba(184,150,12,.1);}
+.home-btn.active::before{width:2px;}
+.home-icon{
+  flex-shrink:0;width:24px;height:24px;
+  background:rgba(184,150,12,.2);
+  border:1px solid rgba(184,150,12,.4);
+  font-size:11px;
+  display:flex;align-items:center;justify-content:center;
+}
+.home-btn.active .home-icon{
+  background:rgba(184,150,12,.35);
+  border-color:var(--gold);
+  box-shadow:0 0 10px rgba(184,150,12,.3);
+}
+.home-label{
+  font-size:9px;letter-spacing:2px;
+  color:var(--gold-light);text-transform:uppercase;
+}
+.chapter-info{flex:1;min-width:0;}
+.chapter-name{
+  font-size:10px;letter-spacing:1.5px;
+  color:var(--white);line-height:1.4;
+  text-transform:uppercase;
+}
+.chapter-sub{
+  font-size:8px;color:var(--ash);
+  letter-spacing:1px;margin-top:3px;
+}
+.chapter-pdf-badge{
+  font-size:7px;letter-spacing:1px;color:var(--gold);
+  margin-top:4px;
+  display:flex;align-items:center;gap:4px;
+}
+
+/* chapter actions row */
+.chapter-actions{
+  display:flex;align-items:center;
+  padding:0 10px 8px 48px;
+  gap:6px;
+}
+.ch-action-btn{
+  background:none;border:1px solid var(--smoke);
+  color:var(--ash);padding:3px 8px;
+  font-family:'Cinzel',serif;font-size:7px;
+  letter-spacing:1px;text-transform:uppercase;
+  cursor:pointer;transition:all .2s;
+  display:flex;align-items:center;gap:4px;
+}
+.ch-action-btn:hover{border-color:var(--blood);color:var(--white);}
+.ch-action-btn.danger:hover{border-color:var(--danger);color:var(--danger);}
+.ch-action-btn.upload-pdf-btn{border-color:rgba(184,150,12,.4);color:var(--gold);}
+.ch-action-btn.upload-pdf-btn:hover{border-color:var(--gold);background:rgba(184,150,12,.08);}
+.ch-action-btn.upload-pdf-en-btn{border-color:rgba(91,155,213,.4);color:#5b9bd5;}
+.ch-action-btn.upload-pdf-en-btn:hover{border-color:#5b9bd5;background:rgba(91,155,213,.08);}
+
+/* ── Language toggle in viewer toolbar ── */
+#langToggleWrap{
+  display:none;align-items:center;gap:0;
+  margin-left:0;
+  border:1px solid var(--border);border-radius:4px;overflow:hidden;
+  flex-shrink:0;
+}
+#langToggleWrap.visible{display:flex;}
+.lang-tab{
+  background:none;border:none;cursor:pointer;
+  padding:5px 14px;color:var(--ash);
+  font-family:'Cinzel',serif;font-size:8px;
+  letter-spacing:2px;text-transform:uppercase;
+  transition:background .2s,color .2s;
+  white-space:nowrap;
+}
+.lang-tab:first-child{border-right:1px solid var(--border);}
+.lang-tab.active{background:rgba(139,0,0,.6);color:var(--white);}
+.ch-action-btn.hide-btn{border-color:rgba(85,85,85,.5);color:var(--ash);}
+.ch-action-btn.hide-btn:hover{border-color:#888;color:var(--white);}
+.ch-action-btn.show-btn{border-color:rgba(26,107,58,.6);color:#4caf80;}
+.ch-action-btn.show-btn:hover{border-color:#4caf80;background:rgba(26,107,58,.1);}
+input.hidden-file{display:none;}
+/* Hidden chapter — dimmed in admin sidebar, invisible to users */
+.chapter-item.ch-hidden .chapter-btn{opacity:.45;}
+.chapter-item.ch-hidden .chapter-num{background:var(--smoke);}
+.chapter-item.ch-hidden .chapter-name{text-decoration:line-through;color:var(--ash);}
+.ch-hidden-badge{
+  font-size:7px;letter-spacing:2px;color:#4caf80;
+  padding:2px 6px;border:1px solid rgba(76,175,128,.35);
+  background:rgba(26,107,58,.15);margin-left:4px;
+  display:inline-block;vertical-align:middle;
+}
+
+/* sub-sections */
+.sub-sections{
+  background:rgba(0,0,0,.2);
+  border-left:2px solid rgba(139,0,0,.3);
+  margin:0 0 0 44px;
+  display:none;
+}
+.sub-sections.open{display:block;}
+.sub-btn{
+  display:flex;align-items:center;gap:8px;
+  width:100%;background:none;border:none;
+  text-align:left;cursor:pointer;
+  padding:8px 14px;
+  font-family:'Cinzel',serif;
+  font-size:9px;letter-spacing:1px;
+  color:var(--ash);text-transform:uppercase;
+  transition:all .2s;border-bottom:1px solid rgba(255,255,255,.02);
+  position:relative;
+  box-sizing:border-box;
+  user-select:none;
+}
+.sub-btn:hover{color:var(--white);background:rgba(139,0,0,.06);}
+.sub-btn.active-sub{color:var(--crimson);}
+.sub-bullet{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--blood);flex-shrink:0;
+}
+.sub-page-num{margin-left:auto;font-size:8px;color:var(--smoke);}
+.sub-delete-btn{
+  background:none;border:none;color:var(--smoke);
+  font-size:10px;cursor:pointer;padding:2px 4px;
+  transition:color .2s;line-height:1;
+}
+.sub-delete-btn:hover{color:var(--danger);}
+
+/* add section row */
+.add-section-row{
+  padding:6px 14px;
+  display:flex;gap:6px;
+  border-top:1px solid rgba(255,255,255,.03);
+}
+.add-section-input{
+  flex:1;background:var(--smoke);border:1px solid var(--border);
+  color:var(--white);padding:4px 8px;
+  font-family:'Cinzel',serif;font-size:8px;letter-spacing:1px;
+  outline:none;min-width:0;
+}
+.add-section-input:focus{border-color:var(--blood);}
+.add-section-input::placeholder{color:var(--ash);}
+.add-section-pg{
+  width:44px;background:var(--smoke);border:1px solid var(--border);
+  color:var(--white);padding:4px 6px;
+  font-family:'Cinzel',serif;font-size:8px;text-align:center;
+  outline:none;
+}
+.add-section-pg:focus{border-color:var(--blood);}
+.add-section-btn{
+  background:rgba(139,0,0,.15);border:1px solid var(--blood);
+  color:var(--blood);padding:4px 8px;
+  font-family:'Cinzel',serif;font-size:9px;
+  cursor:pointer;transition:all .2s;
+}
+.add-section-btn:hover{background:rgba(139,0,0,.3);}
+
+/* ══ PDF VIEWER ══ */
+.viewer-area{
+  display:flex;flex-direction:column;
+  overflow:hidden;background:var(--dark);
+  position:relative;
+}
+.viewer-controls{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 16px;
+  background:var(--panel2);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+  flex-wrap:wrap;
+}
+.ctrl-btn{
+  background:none;border:1px solid var(--smoke);
+  color:var(--ash);padding:5px 12px;
+  font-family:'Cinzel',serif;font-size:8px;
+  letter-spacing:2px;text-transform:uppercase;
+  cursor:pointer;transition:all .25s;
+}
+.ctrl-btn:hover{border-color:var(--blood);color:var(--white);}
+.ctrl-btn.active{background:var(--blood);border-color:var(--blood);color:var(--white);}
+.ctrl-sep{width:1px;height:20px;background:var(--border);}
+.zoom-val{font-size:9px;letter-spacing:2px;color:var(--ash);min-width:40px;text-align:center;}
+.page-jump{
+  display:flex;align-items:center;gap:6px;
+  margin-left:auto;font-size:9px;color:var(--ash);letter-spacing:1px;
+}
+.page-jump input{
+  background:var(--dark);border:1px solid var(--smoke);
+  color:var(--white);width:44px;padding:4px 6px;
+  font-family:'Cinzel',serif;font-size:9px;text-align:center;
+  outline:none;
+}
+.page-jump input:focus{border-color:var(--blood);}
+
+.canvas-wrap{
+  flex:1;overflow:auto;
+  display:flex;flex-direction:column;
+  align-items:flex-start;
+  padding:24px 0 80px;
+  scroll-behavior:smooth;
+  position:relative;
+}
+.canvas-wrap::-webkit-scrollbar{width:5px;height:5px;}
+.canvas-wrap::-webkit-scrollbar-thumb{background:var(--smoke);}
+.page-canvas-container{
+  position:relative;margin-bottom:16px;
+  margin-left:auto;margin-right:auto;
+  box-shadow:0 8px 60px rgba(0,0,0,.8);
+  border:1px solid var(--border);
+}
+.page-canvas-container canvas{display:block;}
+.page-overlay-label{
+  position:absolute;top:8px;right:8px;
+  background:rgba(6,6,6,.85);
+  border:1px solid var(--blood);
+  color:var(--blood);
+  font-size:7px;letter-spacing:3px;text-transform:uppercase;
+  padding:3px 8px;
+  opacity:0;transition:opacity .3s;
+  pointer-events:none;
+}
+.page-canvas-container:hover .page-overlay-label{opacity:1;}
+
+/* ══ COVER SCREEN ══ */
+.cover-screen{
+  /* Fill the full canvas-wrap area regardless of align-items:flex-start on parent */
+  width:100%;
+  min-height:100%;
+  flex-shrink:0;
+  align-self:stretch;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+  background:var(--dark);
+}
+.cover-bg-img{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  object-fit:cover;
+  opacity:0;
+  transition:opacity 1.2s ease;
+  pointer-events:none;
+}
+.cover-bg-img.loaded{ opacity:.18; }
+.cover-vignette{
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse at center, transparent 30%, rgba(6,6,6,.85) 100%);
+  pointer-events:none;
+}
+.cover-content{
+  position:relative;z-index:2;
+  display:flex;flex-direction:column;
+  align-items:center;gap:18px;
+  text-align:center;padding:40px;
+  animation:fadeUp .8s both;
+}
+.cover-skull{
+  font-size:56px;
+  opacity:.25;
+  animation:float 4s ease-in-out infinite;
+  line-height:1;
+}
+.cover-title{
+  font-family:'Cinzel Decorative',cursive;
+  font-size:clamp(18px,3vw,32px);
+  color:var(--white);
+  letter-spacing:6px;
+  text-shadow:0 0 40px rgba(139,0,0,.6);
+  line-height:1.3;
+}
+.cover-sub{
+  font-size:9px;letter-spacing:6px;
+  color:var(--blood);text-transform:uppercase;
+  border-top:1px solid rgba(139,0,0,.3);
+  border-bottom:1px solid rgba(139,0,0,.3);
+  padding:8px 24px;
+}
+.cover-hint{
+  font-family:'IM Fell English',serif;
+  font-size:13px;color:var(--ash);
+  letter-spacing:1px;font-style:italic;
+  margin-top:8px;
+}
+.cover-upload-area{
+  margin-top:10px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+.cover-upload-btn{
+  background:rgba(139,0,0,.12);
+  border:1px solid rgba(139,0,0,.4);
+  color:var(--blood);
+  padding:9px 22px;
+  font-family:'Cinzel',serif;font-size:8px;letter-spacing:3px;text-transform:uppercase;
+  cursor:pointer;transition:all .3s;
+}
+.cover-upload-btn:hover{background:rgba(139,0,0,.25);border-color:var(--blood);}
+.cover-upload-label{
+  font-size:8px;letter-spacing:2px;color:var(--smoke);text-transform:uppercase;
+}
+
+/* ══ COVER RATING ══ */
+.cover-rating-area{
+  margin-top:10px;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+.cover-rating-label{
+  font-size:8px;letter-spacing:3px;color:var(--ash);text-transform:uppercase;
+}
+.star-row{
+  display:flex;gap:6px;
+}
+.star-btn{
+  background:none;border:none;cursor:pointer;
+  font-size:22px;line-height:1;
+  color:var(--smoke);
+  transition:color .2s,transform .15s;
+  padding:2px;
+}
+.star-btn:hover,.star-btn.lit{color:var(--gold-light);}
+.star-btn:hover{transform:scale(1.2);}
+.cover-rating-summary{
+  font-size:8px;letter-spacing:2px;color:var(--ash);text-transform:uppercase;
+}
+.cover-rating-thanks{
+  font-size:8px;letter-spacing:2px;color:var(--gold);text-transform:uppercase;
+  display:none;
+}
+
+/* empty state (fallback, hidden) */
+.drop-zone{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:20px;position:relative;
+  border:2px dashed var(--smoke);
+  margin:24px;transition:border-color .3s;
+}
+.drop-zone.drag-over{border-color:var(--blood);}
+.drop-icon{font-size:48px;opacity:.2;animation:float 3s ease-in-out infinite;}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.drop-text{font-size:10px;letter-spacing:4px;color:var(--smoke);text-transform:uppercase;}
+.drop-sub{font-size:9px;color:var(--ash);letter-spacing:2px;text-align:center;line-height:2;}
+
+/* scroll nav */
+.scroll-nav{
+  position:fixed;bottom:28px;left:50%;
+  transform:translateX(calc(-50% + var(--sidebar-w)/2));
+  display:flex;align-items:center;gap:8px;z-index:100;
+}
+.scroll-arrow{
+  background:rgba(6,6,6,.92);
+  border:1px solid var(--blood);
+  color:var(--white);width:44px;height:44px;
+  font-size:16px;cursor:pointer;transition:all .3s;
+  display:flex;align-items:center;justify-content:center;
+}
+.scroll-arrow:hover{background:var(--blood);}
+.scroll-arrow:disabled{opacity:.2;cursor:not-allowed;pointer-events:none;}
+.scroll-page-label{
+  background:rgba(6,6,6,.92);
+  border:1px solid var(--border);
+  padding:0 16px;height:44px;
+  display:flex;align-items:center;
+  font-size:9px;letter-spacing:2px;color:var(--ash);
+  text-transform:uppercase;white-space:nowrap;
+}
+
+/* ══ MODAL ══ */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.85);
+  z-index:600;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .3s;
+}
+.modal-overlay.open{opacity:1;pointer-events:all;}
+.modal{
+  background:var(--panel);border:1px solid var(--blood);
+  width:420px;max-width:90vw;
+  padding:28px;
+  animation:fadeUp .3s both;
+}
+.modal h2{
+  font-size:10px;letter-spacing:5px;text-transform:uppercase;
+  color:var(--blood);margin-bottom:20px;
+  border-bottom:1px solid var(--border);padding-bottom:12px;
+}
+.modal-field{margin-bottom:14px;}
+.modal-field label{
+  display:block;font-size:8px;letter-spacing:3px;
+  color:var(--ash);text-transform:uppercase;margin-bottom:6px;
+}
+.modal-field input, .modal-field textarea{
+  width:100%;background:var(--smoke);border:1px solid var(--border);
+  color:var(--white);padding:8px 12px;
+  font-family:'Cinzel',serif;font-size:9px;letter-spacing:1px;
+  outline:none;resize:none;
+}
+.modal-field input:focus, .modal-field textarea:focus{border-color:var(--blood);}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
+.modal-btn{
+  background:none;border:1px solid var(--smoke);
+  color:var(--ash);padding:7px 18px;
+  font-family:'Cinzel',serif;font-size:8px;letter-spacing:2px;
+  text-transform:uppercase;cursor:pointer;transition:all .25s;
+}
+.modal-btn:hover{border-color:var(--ash);color:var(--white);}
+.modal-btn.primary{
+  background:rgba(139,0,0,.2);border-color:var(--blood);color:var(--blood);
+}
+.modal-btn.primary:hover{background:var(--blood);color:var(--white);}
+
+/* ══ CONFIRM MODAL ══ */
+.confirm-modal{
+  background:var(--panel);border:1px solid var(--danger);
+  width:340px;max-width:90vw;padding:24px;
+  animation:fadeUp .3s both;
+}
+.confirm-modal h2{
+  font-size:9px;letter-spacing:4px;color:var(--danger);
+  text-transform:uppercase;margin-bottom:12px;
+}
+.confirm-modal p{
+  font-family:'IM Fell English',serif;
+  font-size:13px;color:var(--ash);margin-bottom:20px;line-height:1.6;
+}
+.confirm-actions{display:flex;gap:10px;}
+.confirm-btn{
+  flex:1;background:none;border:1px solid var(--smoke);
+  color:var(--ash);padding:8px;
+  font-family:'Cinzel',serif;font-size:8px;letter-spacing:2px;
+  text-transform:uppercase;cursor:pointer;transition:all .25s;
+}
+.confirm-btn.danger-btn{
+  background:rgba(192,57,43,.15);border-color:var(--danger);color:var(--danger);
+}
+.confirm-btn.danger-btn:hover{background:var(--danger);color:var(--white);}
+
+/* ══ PDF MANAGER MODAL ══ */
+.pdf-manager{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.88);
+  z-index:600;
+  display:none;
+  align-items:center;
+  justify-content:center;
+}
+.pdf-manager.open{display:flex;}
+.pdf-manager-box{
+  background:var(--panel);border:1px solid var(--blood);
+  width:500px;max-width:95vw;
+  max-height:80vh;
+  display:flex;flex-direction:column;
+  animation:fadeUp .3s both;
+}
+.pdf-manager-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.pdf-manager-title{
+  font-size:8px;letter-spacing:4px;color:var(--white);text-transform:uppercase;
+}
+.pdf-manager-close{
+  background:none;border:none;color:var(--ash);font-size:18px;cursor:pointer;line-height:1;
+}
+.pdf-manager-close:hover{color:var(--crimson);}
+.pdf-manager-body{flex:1;overflow-y:auto;padding:16px;}
+.pdf-manager-body::-webkit-scrollbar{width:3px;}
+.pdf-manager-body::-webkit-scrollbar-thumb{background:var(--smoke);}
+.pdf-manager-empty{
+  text-align:center;padding:40px 20px;
+  font-size:8px;letter-spacing:3px;color:var(--smoke);text-transform:uppercase;line-height:2;
+}
+.pdf-item{
+  background:var(--panel3);border:1px solid var(--border);
+  margin-bottom:10px;padding:12px 14px;
+  display:flex;align-items:center;gap:12px;
+  transition:border-color .2s;cursor:pointer;
+}
+.pdf-item:hover{border-color:var(--blood);}
+.pdf-item-icon{font-size:20px;opacity:.5;flex-shrink:0;}
+.pdf-item-info{flex:1;min-width:0;}
+.pdf-item-name{
+  font-size:9px;letter-spacing:1px;color:var(--white);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  margin-bottom:3px;
+}
+.pdf-item-meta{font-size:7px;letter-spacing:2px;color:var(--ash);}
+.pdf-item-actions{display:flex;gap:6px;flex-shrink:0;}
+.pdf-icon-btn{
+  background:none;border:1px solid var(--smoke);
+  color:var(--ash);width:26px;height:26px;
+  font-size:11px;cursor:pointer;transition:all .2s;
+  display:flex;align-items:center;justify-content:center;
+}
+.pdf-icon-btn:hover{border-color:var(--blood);color:var(--white);}
+.pdf-icon-btn.del:hover{border-color:var(--danger);color:var(--danger);}
+.pdf-manager-upload{
+  padding:16px;border-top:1px solid var(--border);flex-shrink:0;
+}
+.pm-upload-label{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  background:rgba(139,0,0,.1);border:1px dashed var(--blood);
+  color:var(--blood);padding:14px;
+  font-family:'Cinzel',serif;font-size:9px;letter-spacing:2px;
+  text-transform:uppercase;cursor:pointer;transition:all .3s;
+}
+.pm-upload-label:hover{background:rgba(139,0,0,.25);}
+
+.page-canvas-container {
+  cursor: pointer;
+}
+
+.page-canvas-container:hover {
+  outline: 2px solid var(--blood);
+  box-shadow: 0 0 20px rgba(139,0,0,.4);
+}
+
+/* ══ TOAST ══ */
+.toast{
+  position:fixed;bottom:88px;left:50%;
+  transform:translateX(calc(-50% + var(--sidebar-w)/2)) translateY(20px);
+  background:var(--panel);border:1px solid var(--blood);
+  padding:10px 20px;font-size:9px;letter-spacing:2px;
+  color:var(--white);text-transform:uppercase;
+  opacity:0;pointer-events:none;transition:all .4s;
+  z-index:700;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(calc(-50% + var(--sidebar-w)/2)) translateY(0);}
+
+/* ══ LOADING ══ */
+.loading-overlay{
+  position:fixed;inset:0;background:rgba(6,6,6,.96);
+  z-index:800;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:20px;
+  opacity:0;pointer-events:none;transition:opacity .3s;
+}
+.loading-overlay.active{opacity:1;pointer-events:all;}
+.loading-skull{font-size:36px;animation:spinSlow 3s linear infinite;}
+@keyframes spinSlow{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.loading-bar-wrap{width:200px;height:2px;background:var(--smoke);}
+.loading-bar{height:100%;width:0;background:var(--blood);transition:width .2s;}
+.loading-txt{font-size:9px;letter-spacing:4px;color:var(--ash);text-transform:uppercase;}
+
+/* ══ ANIMATE ══ */
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--dark);}
+::-webkit-scrollbar-thumb{background:var(--smoke);}
+
+/* ══ HAMBURGER BTN (mobile only) ══ */
+.hamburger-btn{
+  display:none;
+  background:none;border:1px solid var(--blood);
+  color:var(--blood);width:36px;height:36px;
+  font-size:18px;cursor:pointer;
+  align-items:center;justify-content:center;
+  flex-shrink:0;transition:all .3s;
+}
+.hamburger-btn:hover{background:rgba(139,0,0,.2);}
+
+/* ══ SIDEBAR OVERLAY (mobile) ══ */
+.sidebar-overlay{
+  display:none;
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.7);
+  z-index:150;
+}
+.sidebar-overlay.open{display:block;}
+
+@media(max-width:768px){
+  :root{--sidebar-w:0px;}
+
+  /* App grid: single column, full width */
+  .app{
+    grid-template-columns:1fr;
+    width:100vw;
+  }
+
+  /* Sidebar becomes a slide-in drawer */
+  .sidebar{
+    position:fixed;
+    top:var(--topbar-h);left:0;bottom:0;
+    width:min(300px, 85vw);
+    z-index:160;
+    transform:translateX(-100%);
+    transition:transform .3s ease;
+    display:flex; /* always in DOM */
+  }
+  .sidebar.mobile-open{transform:translateX(0);}
+
+  /* Hamburger visible */
+  .hamburger-btn{display:flex;}
+
+  /* Topbar: tighten up, hide long title */
+  .topbar{padding:0 10px;gap:8px;padding-left:max(10px, env(safe-area-inset-left));padding-right:max(10px, env(safe-area-inset-right));}
+  .course-title-bar{font-size:9px;letter-spacing:2px;max-width:100px;}
+  .topbar-divider{display:none;}
+  .topbar-btn{padding:6px 10px;font-size:7px;}
+  .add-vid-btn{padding:5px 8px;font-size:7px;letter-spacing:1px;}
+  /* hide add-video text label on very small screens */
+  .add-vid-btn span.add-vid-text { display: none; }
+  .page-indicator{font-size:8px;}
+
+  /* PDF viewer controls wrap better */
+  .viewer-controls{
+    padding:8px 10px;gap:5px;
+    font-size:7px;
+  }
+  .ctrl-btn{padding:4px 8px;font-size:7px;letter-spacing:1px;}
+  .page-jump{margin-left:0;flex-wrap:wrap;}
+  .page-jump span{display:none;}
+
+  /* Canvas wrap scrolls both axes when zoomed in */
+  .canvas-wrap{
+    padding:12px 0 80px;
+    overflow:auto;
+    align-items:flex-start;
+  }
+
+  /* PDF canvas — base width auto so pinch/zoom can grow it */
+  .page-canvas-container{
+    max-width:none;
+    width:auto;
+  }
+  .page-canvas-container canvas{
+    width:100%;
+    height:auto;
+  }
+
+  /* Scroll nav: centred without sidebar offset */
+  .scroll-nav{
+    transform:translateX(-50%);
+    bottom:16px;
+    bottom:max(16px, env(safe-area-inset-bottom));
+  }
+  .scroll-arrow{width:40px;height:40px;font-size:14px;}
+  .scroll-page-label{padding:0 12px;font-size:8px;}
+
+  /* Toast: centred without sidebar offset */
+  .toast{
+    transform:translateX(-50%) translateY(20px);
+    font-size:8px;
+    max-width:90vw;white-space:normal;text-align:center;
+  }
+  .toast.show{transform:translateX(-50%) translateY(0);}
+
+  /* Video modal — handled by dedicated @media block below */
+
+  /* Video buttons: smaller on mobile */
+  .vid-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+  }
+  .vid-btn-label { font-size: 6px; padding: 2px 6px; bottom: 32px; }
+  .vid-btn-del { width: 14px; height: 14px; font-size: 8px; top: -5px; right: -5px; }
+
+  /* PDF manager full-width */
+  .pdf-manager-box{width:95vw;max-height:90vh;}
+
+  /* Viewer area takes full width */
+  .viewer-area{
+    width:100%;
+    min-width:0;
+  }
+}
+
+/* ══ VIDEO BUTTONS ON PDF ══ */
+.page-canvas-container {
+  position: relative;
+}
+.vid-btn {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--blood);
+  border: 2px solid var(--crimson);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 3px rgba(139,0,0,.35), 0 4px 18px rgba(0,0,0,.7);
+  transition: transform .2s, box-shadow .2s, background .2s;
+  z-index: 10;
+  user-select: none;
+  animation: pulseRed 2.4s ease-in-out infinite;
+}
+.vid-btn:hover {
+  background: var(--crimson);
+  transform: scale(1.15);
+  box-shadow: 0 0 0 5px rgba(220,20,60,.4), 0 6px 24px rgba(0,0,0,.8);
+  animation: none;
+}
+.vid-btn.dragging {
+  transform: scale(1.2);
+  animation: none;
+  cursor: grabbing;
+}
+@keyframes pulseRed {
+  0%,100% { box-shadow: 0 0 0 3px rgba(139,0,0,.35), 0 4px 18px rgba(0,0,0,.7); }
+  50%      { box-shadow: 0 0 0 7px rgba(220,20,60,.25), 0 4px 18px rgba(0,0,0,.7); }
+}
+.vid-btn-label {
+  position: absolute;
+  bottom: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(6,6,6,.92);
+  border: 1px solid var(--blood);
+  color: var(--white);
+  font-family: 'Cinzel', serif;
+  font-size: 7px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 3px 9px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s;
+}
+.vid-btn:hover .vid-btn-label { opacity: 1; }
+.vid-btn-del {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #000;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 9px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 11;
+  line-height: 1;
+}
+.vid-btn:hover .vid-btn-del { display: flex; }
+
+/* Add-video button in topbar */
+.add-vid-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(139,0,0,.15);
+  border: 1px solid var(--blood);
+  color: var(--blood);
+  padding: 6px 13px;
+  font-family: 'Cinzel', serif;
+  font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all .3s;
+}
+.add-vid-btn:hover { background: rgba(139,0,0,.3); }
+.add-vid-btn.active-add {
+  background: var(--blood);
+  color: #fff;
+  box-shadow: 0 0 14px rgba(139,0,0,.5);
+}
+
+/* ══ VIDEO PLAYER MODAL ══ */
+.vid-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.92);
+  z-index: 700;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity .3s;
+}
+.vid-modal-overlay.open { opacity: 1; pointer-events: all; }
+.vid-modal-box {
+  background: var(--panel);
+  border: 1px solid var(--blood);
+  width: min(96vw, 1100px);
+  max-height: 96dvh;
+  display: flex;
+  flex-direction: column;
+  animation: fadeUp .3s both;
+}
+.vid-modal-head {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.vid-modal-title {
+  font-size: 9px; letter-spacing: 4px; color: var(--blood); text-transform: uppercase;
+}
+.vid-modal-close {
+  background: none; border: none; color: var(--ash); font-size: 18px; cursor: pointer; line-height: 1;
+  padding: 4px 8px;
+}
+.vid-modal-close:hover { color: var(--crimson); }
+.vid-modal-body {
+  padding: 0;
+  background: #000;
+  position: relative;
+  /* On desktop: 16:9 based on box width, capped at 75vh */
+  height: clamp(260px, 56.25vw, 75vh);
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.vid-modal-body video,
+.vid-modal-body iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: none;
+  background: #000;
+  object-fit: contain;
+}
+/* ── Mobile: fill almost full screen height ── */
+@media (max-width: 600px) {
+  .vid-modal-overlay { align-items: stretch; padding: 0; }
+  .vid-modal-box {
+    width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-left: none; border-right: none;
+    border-radius: 0;
+  }
+  .vid-modal-body {
+    height: auto;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+}
+
+/* ══ ATTACH VIDEO MODAL ══ */
+.attach-vid-modal {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.88);
+  z-index: 650;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity .3s;
+}
+.attach-vid-modal.open { opacity: 1; pointer-events: all; }
+.attach-vid-box {
+  background: var(--panel);
+  border: 1px solid var(--blood);
+  width: 440px; max-width: 95vw;
+  animation: fadeUp .3s both;
+}
+.attach-vid-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 17px; border-bottom: 1px solid var(--border);
+}
+.attach-vid-head h2 { font-size: 8px; letter-spacing: 5px; color: var(--blood); text-transform: uppercase; }
+.attach-vid-body { padding: 20px 17px; }
+.av-field { margin-bottom: 14px; }
+.av-field label { display: block; font-size: 7px; letter-spacing: 3px; color: var(--ash); text-transform: uppercase; margin-bottom: 6px; }
+.av-field input[type=text] {
+  width: 100%; background: var(--smoke); border: 1px solid var(--border);
+  color: var(--white); padding: 8px 10px;
+  font-family: 'Cinzel', serif; font-size: 9px; outline: none;
+}
+.av-field input[type=text]:focus { border-color: var(--blood); }
+.av-or { text-align: center; font-size: 8px; color: var(--ash); letter-spacing: 3px; margin: 10px 0; text-transform: uppercase; }
+.av-upload-label {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(139,0,0,.1); border: 1px dashed var(--blood);
+  color: var(--blood); padding: 12px;
+  font-family: 'Cinzel', serif; font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all .3s;
+}
+.av-upload-label:hover { background: rgba(139,0,0,.22); }
+.av-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; }
+.av-btn {
+  background: none; border: 1px solid var(--smoke); color: var(--ash);
+  padding: 7px 16px; font-family: 'Cinzel', serif; font-size: 8px;
+  letter-spacing: 2px; text-transform: uppercase; cursor: pointer;
+}
+.av-btn:hover { border-color: var(--ash); color: var(--white); }
+.av-btn.pri { background: rgba(139,0,0,.2); border-color: var(--blood); color: var(--blood); }
+.av-btn.pri:hover { background: var(--blood); color: #fff; }
+.av-progress { height: 2px; background: var(--smoke); margin-top: 10px; display: none; }
+.av-progress-fill { height: 100%; background: var(--blood); width: 0; transition: width .2s; }
+
+/* ══ ACCESS GATE ══ */
+#accessGate {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--dark);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column;
+}
+#accessGate::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(139,0,0,.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139,0,0,.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+}
+.gate-box {
+  position: relative; z-index: 2;
+  text-align: center; padding: 56px 44px;
+  border: 1px solid var(--blood);
+  background: var(--panel);
+  max-width: 440px; width: 90%;
+  animation: fadeUp .6s both;
+  box-shadow: 0 0 80px rgba(139,0,0,.15);
+}
+.gate-icon {
+  font-size: 52px; margin-bottom: 18px; line-height: 1;
+  display: block;
+}
+.gate-title {
+  font-family: 'Cinzel Decorative', cursive;
+  font-size: 18px; letter-spacing: 4px;
+  color: var(--white); margin-bottom: 14px;
+  text-shadow: 0 0 30px rgba(139,0,0,.5);
+}
+.gate-sub {
+  font-family: 'IM Fell English', serif;
+  font-size: 14px; color: var(--ash);
+  line-height: 1.7; letter-spacing: .5px;
+  margin-bottom: 10px;
+}
+.gate-detail {
+  font-size: 9px; letter-spacing: 2px;
+  color: var(--smoke); text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.gate-link {
+  color: var(--blood); text-decoration: underline;
+}
+.gate-btn {
+  display: inline-block;
+  background: rgba(139,0,0,.15);
+  border: 1px solid var(--blood);
+  color: var(--blood);
+  padding: 11px 28px;
+  font-family: 'Cinzel', serif;
+  font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+  cursor: pointer; transition: all .3s;
+  text-decoration: none;
+}
+.gate-btn:hover { background: var(--blood); color: var(--white); }
+.gate-skull-logo {
+  font-family: 'Cinzel Decorative', cursive;
+  font-size: 13px; color: var(--blood);
+  letter-spacing: 4px; margin-bottom: 32px;
+  opacity: .7;
+}
+
+/* ══ ACCESS GRANTED ANIMATION ══ */
+#accessGate.granted {
+  background: var(--dark);
+}
+
+/* Particles canvas behind everything */
+#grantedCanvas {
+  position: fixed; inset: 0; z-index: 1;
+  pointer-events: none;
+}
+
+/* Main granted overlay — sits above gate content */
+#grantedOverlay {
+  position: fixed; inset: 0; z-index: 10000;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+}
+#grantedOverlay.active { opacity: 1; }
+
+/* Seal / ring that cracks open */
+.seal-ring {
+  position: relative;
+  width: 180px; height: 180px;
+  margin-bottom: 32px;
+}
+.seal-svg {
+  width: 100%; height: 100%;
+  animation: sealSpin 12s linear infinite;
+}
+@keyframes sealSpin {
+  to { transform: rotate(360deg); }
+}
+.seal-center-icon {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 56px;
+  line-height: 1;
+}
+
+/* Book that opens */
+.book-wrap {
+  perspective: 700px;
+  width: 160px; height: 200px;
+  position: relative;
+}
+.book-cover-left,
+.book-cover-right {
+  position: absolute;
+  top: 0; width: 50%; height: 100%;
+  background: linear-gradient(135deg, #1a0000 0%, #3d0000 50%, #1a0000 100%);
+  border: 1px solid var(--blood);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transition: transform 1.1s cubic-bezier(.4,0,.2,1);
+  backface-visibility: hidden;
+}
+.book-cover-left {
+  left: 0;
+  border-right: 2px solid var(--blood);
+  transform-origin: right center;
+  box-shadow: inset -4px 0 10px rgba(0,0,0,.6);
+}
+.book-cover-right {
+  right: 0;
+  transform-origin: left center;
+  box-shadow: inset 4px 0 10px rgba(0,0,0,.6);
+}
+.book-cover-left.open  { transform: rotateY(-145deg); }
+.book-cover-right.open { transform: rotateY(145deg); }
+
+.book-spine {
+  position: absolute; left: 50%; top: 0;
+  transform: translateX(-50%);
+  width: 8px; height: 100%;
+  background: var(--blood);
+  box-shadow: 0 0 18px rgba(139,0,0,.8);
+}
+.book-glow {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, rgba(220,20,60,.35) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity .6s .8s;
+}
+.book-glow.open { opacity: 1; }
+
+.book-symbol-left,
+.book-symbol-right {
+  position: absolute; top: 50%; left: 50%;
+  font-size: 28px; opacity: .6;
+  transform: translate(-50%, -50%);
+  color: var(--blood);
+  font-family: 'Cinzel Decorative', cursive;
+}
+
+/* Granted text */
+.granted-label {
+  font-family: 'Cinzel Decorative', cursive;
+  font-size: clamp(18px, 4vw, 28px);
+  letter-spacing: 8px;
+  color: var(--gold-light);
+  text-shadow: 0 0 30px rgba(212,175,55,.7), 0 0 60px rgba(212,175,55,.3);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity .6s .9s, transform .6s .9s;
+  text-align: center;
+}
+.granted-label.show { opacity: 1; transform: translateY(0); }
+
+.granted-sub {
+  font-family: 'IM Fell English', serif;
+  font-size: 14px;
+  color: var(--ash);
+  letter-spacing: 2px;
+  margin-top: 12px;
+  opacity: 0;
+  transition: opacity .6s 1.2s;
+  text-align: center;
+}
+.granted-sub.show { opacity: 1; }
+
+/* Gold particle burst rings */
+@keyframes ringBurst {
+  0%   { transform: scale(0); opacity: .9; }
+  100% { transform: scale(3.5); opacity: 0; }
+}
+.ring-burst {
+  position: absolute;
+  width: 180px; height: 180px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  animation: ringBurst 1.2s ease-out forwards;
+  pointer-events: none;
+}
+
+/* Shimmer sweep across gate box */
+@keyframes shimmerSweep {
+  0%   { left: -100%; }
+  100% { left: 200%; }
+}
+.gate-box.shimmer::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(212,175,55,.18) 50%, transparent 60%);
+  animation: shimmerSweep .7s ease-in-out;
+}
+
+/* Gate fade-out when accepted */
+#accessGate.fade-out {
+  animation: gateFadeOut .8s ease-in forwards;
+}
+@keyframes gateFadeOut {
+  0%   { opacity: 1; transform: scale(1); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 0; transform: scale(1.08); display: none; }
+}
+
+/* Pulse gold on gate box */
+@keyframes goldPulse {
+  0%,100% { box-shadow: 0 0 80px rgba(139,0,0,.15); border-color: var(--blood); }
+  50%      { box-shadow: 0 0 80px rgba(212,175,55,.4), 0 0 40px rgba(212,175,55,.2); border-color: var(--gold); }
+}
+.gate-box.gold-pulse {
+  animation: goldPulse .6s ease-in-out;
+}
+
+/* Checkmark stamp */
+.stamp-wrap {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 110px; height: 110px;
+}
+.stamp-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--gold);
+  box-shadow: 0 0 20px rgba(212,175,55,.5), inset 0 0 20px rgba(212,175,55,.1);
+  animation: stampAppear .5s cubic-bezier(.175,.885,.32,1.275) both;
+}
+@keyframes stampAppear {
+  0%   { transform: scale(0) rotate(-180deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0deg);    opacity: 1; }
+}
+.stamp-check {
+  font-size: 48px;
+  animation: stampAppear .5s .15s cubic-bezier(.175,.885,.32,1.275) both;
+  line-height: 1;
+}
+</style>
+</head>
+<body>
+
+<!-- ACCESS GATE — shown until auth + purchase verified -->
+<div id="accessGate" style="display:none;">
+  <div class="gate-skull-logo">☠ How To Rebirth</div>
+  <div class="gate-box">
+    <div id="gateMsg">
+      <div class="gate-icon" style="animation:spinSlow 2s linear infinite;">☠</div>
+      <div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ACCESS GRANTED ANIMATION OVERLAY -->
+<canvas id="grantedCanvas" style="display:none;"></canvas>
+<div id="grantedOverlay">
+  <div class="stamp-wrap" id="stampWrap" style="display:none;">
+    <div class="stamp-ring"></div>
+    <div class="stamp-check">✦</div>
+  </div>
+  <div class="book-wrap" id="bookWrap" style="display:none;">
+    <div class="book-cover-left" id="bookLeft">
+      <div class="book-symbol-left">☠</div>
+    </div>
+    <div class="book-spine"></div>
+    <div class="book-cover-right" id="bookRight">
+      <div class="book-symbol-right">☠</div>
+    </div>
+    <div class="book-glow" id="bookGlow"></div>
+  </div>
+  <div class="granted-label" id="grantedLabel">Access Granted</div>
+  <div class="granted-sub" id="grantedSub">Welcome back, initiate. Your path awaits.</div>
+</div>
+
+<!-- APP SHELL — hidden until access verified -->
+<div id="appShell" style="display:none;">
+
+<!-- SIDEBAR OVERLAY (mobile) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-skull">☠</div>
+  <div class="loading-bar-wrap"><div class="loading-bar" id="loadingBar"></div></div>
+  <div class="loading-txt" id="loadingTxt">Loading PDF...</div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMobileSidebar()" title="Chapters">☰</button>
+  <button class="topbar-btn" onclick="window.location.href='index.html'" title="Back to Home" style="gap:6px;flex-shrink:0;">← Back</button>
+  <div class="topbar-divider"></div>
+  <div class="course-title-bar" id="courseTitle">How To Rebirth — Course Viewer</div>
+  <div class="topbar-right">
+    <button class="add-vid-btn admin-only" id="addVidModeBtn" onclick="toggleAddVideoMode()">▶ Add Video</button>
+    <button class="add-vid-btn admin-only" id="warmUpAllBtn" onclick="warmUpAllVideos()" title="Ping Drive to start transcoding all uploaded videos so they load faster for students" style="font-size:10px;letter-spacing:1.5px;">⚙ Warm Up All Videos</button>
+    <div class="page-indicator" id="topPageIndicator">— / —</div>
+    <button class="fullscreen-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <h3>☠ Chapters</h3>
+      <button class="add-chapter-btn admin-only" onclick="openAddChapterModal()">+ Add</button>
+    </div>
+    <div class="sidebar-inner" id="sidebarInner">
+      <!-- HOME / COVER button -->
+      <button class="home-btn active" id="homeBtn" onclick="goHome()">
+        <div class="home-icon">☠</div>
+        <div class="home-label">Cover</div>
+      </button>
+      <div id="chapterList"></div>
+    </div>
+  </div>
+
+  <!-- PDF VIEWER -->
+  <div class="viewer-area" id="viewerArea">
+    <div class="viewer-controls" id="viewerControls" style="display:none;">
+      <button class="ctrl-btn" onclick="prevPage()">◀ Prev</button>
+      <button class="ctrl-btn" onclick="nextPage()">Next ▶</button>
+      <div class="ctrl-sep"></div>
+      <button class="ctrl-btn" onclick="zoom(-0.25)">−</button>
+      <div class="zoom-val" id="zoomVal">100%</div>
+      <button class="ctrl-btn" id="zoomInBtn" onclick="zoom(0.25)">+</button>
+      <div class="ctrl-sep"></div>
+      <button class="ctrl-btn active" id="btnSingle" onclick="setViewMode('single')">Single</button>
+      <button class="ctrl-btn" id="btnAll" onclick="setViewMode('all')">All Pages</button>
+      <div class="ctrl-sep"></div>
+      <div id="langToggleWrap">
+        <button class="lang-tab active" id="langTabAr" onclick="switchLang('ar')">AR</button>
+        <button class="lang-tab" id="langTabEn" onclick="switchLang('en')">EN</button>
+      </div>
+      <div class="page-jump">
+        <span>Go to page</span>
+        <input type="number" id="pageJumpInput" min="1" onkeydown="if(event.key==='Enter')jumpToPage()">
+        <button class="ctrl-btn" onclick="jumpToPage()">Go</button>
+      </div>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <!-- COVER SCREEN (shown when no chapter selected) -->
+      <div class="cover-screen" id="coverScreen">
+        <img class="cover-bg-img" id="coverBgImg" src="" alt="">
+        <div class="cover-vignette"></div>
+        <div class="cover-content">
+          <div class="cover-skull">☠</div>
+          <div class="cover-title" id="coverTitle">How To Rebirth</div>
+          <div class="cover-sub">Select a Chapter to Begin</div>
+          <div class="cover-hint">Choose a chapter from the sidebar to open your course</div>
+          <!-- RATING SYSTEM — visible to all users & admin -->
+          <div class="cover-rating-area" id="coverRatingArea">
+            <div class="cover-rating-label">Rate This Book</div>
+            <div class="star-row" id="starRow">
+              <button class="star-btn" data-star="1" onclick="submitRating(1)" onmouseover="hoverStars(1)" onmouseout="resetStarHover()">★</button>
+              <button class="star-btn" data-star="2" onclick="submitRating(2)" onmouseover="hoverStars(2)" onmouseout="resetStarHover()">★</button>
+              <button class="star-btn" data-star="3" onclick="submitRating(3)" onmouseover="hoverStars(3)" onmouseout="resetStarHover()">★</button>
+              <button class="star-btn" data-star="4" onclick="submitRating(4)" onmouseover="hoverStars(4)" onmouseout="resetStarHover()">★</button>
+              <button class="star-btn" data-star="5" onclick="submitRating(5)" onmouseover="hoverStars(5)" onmouseout="resetStarHover()">★</button>
+            </div>
+            <div class="cover-rating-summary" id="ratingSummary">Be the first to rate!</div>
+            <div class="cover-rating-thanks" id="ratingThanks">✦ Thank you for your rating!</div>
+          </div>
+
+          <div class="cover-upload-area admin-only" id="coverUploadArea">
+            <label class="cover-upload-btn" for="coverImgInput">☠ Set Cover Image</label>
+            <input type="file" id="coverImgInput" accept="image/*" style="display:none" onchange="handleCoverImageUpload(event)">
+            <div class="cover-upload-label">Upload a custom background image</div>
+            <button id="removeCoverBtn" onclick="handleRemoveCoverImage()" style="display:none;background:rgba(192,57,43,.15);border:1px solid var(--danger);color:var(--danger);padding:7px 18px;font-family:'Cinzel',serif;font-size:8px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;margin-top:4px;transition:all .25s;">✕ Remove Cover Image</button>
+          </div>
+        </div>
+      </div>
+      <!-- DROP ZONE (hidden, kept for compat) -->
+      <div class="drop-zone" id="dropZone" style="display:none;">
+        <div class="drop-icon">☠</div>
+        <div class="drop-text">No PDF loaded</div>
+        <div class="drop-sub">Select a chapter from the sidebar<br>and attach a PDF to it via "📂 Attach PDFs button"</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCROLL NAV -->
+<div class="scroll-nav" id="scrollNav" style="display:none;">
+  <button class="scroll-arrow" id="navPrev" onclick="prevPage()">◀</button>
+  <div class="scroll-page-label" id="scrollPageLabel">Page 1 of 1</div>
+  <button class="scroll-arrow" id="navNext" onclick="nextPage()">▶</button>
+</div>
+
+<!-- PDF MANAGER MODAL -->
+<div class="pdf-manager" id="pdfManager" onclick="if(event.target===this)closePdfManager()">
+  <div class="pdf-manager-box">
+    <div class="pdf-manager-head">
+      <div class="pdf-manager-title">☠ PDF Library</div>
+      <button class="pdf-manager-close" onclick="closePdfManager()">✕</button>
+    </div>
+    <div class="pdf-manager-body" id="pdfManagerBody">
+      <div class="pdf-manager-empty">No PDFs uploaded yet</div>
+    </div>
+    <div class="pdf-manager-upload admin-only">
+      <label class="pm-upload-label" for="globalPdfUpload">
+        ☠ Upload New PDF
+      </label>
+      <input type="file" id="globalPdfUpload" accept=".pdf" multiple style="display:none" onchange="handleGlobalPdfUpload(event)">
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT CHAPTER MODAL -->
+<div class="modal-overlay" id="chapterModal">
+  <div class="modal">
+    <h2 id="chapterModalTitle">Add Chapter</h2>
+    <div class="modal-field">
+      <label>Chapter Name</label>
+      <input type="text" id="chModalName" placeholder="e.g. The Death of the Old Self">
+    </div>
+    <div class="modal-field">
+      <label>Description / Subtitle</label>
+      <input type="text" id="chModalDesc" placeholder="e.g. Identity & Letting Go">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn" onclick="closeChapterModal()">Cancel</button>
+      <button class="modal-btn primary" onclick="saveChapterModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="confirm-modal">
+    <h2 id="confirmTitle">Confirm</h2>
+    <p id="confirmMsg">Are you sure?</p>
+    <div class="confirm-actions">
+      <button class="confirm-btn" onclick="closeConfirm()">Cancel</button>
+      <button class="confirm-btn danger-btn" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- VIDEO PLAYER MODAL -->
+<div class="vid-modal-overlay" id="vidPlayerModal">
+  <div class="vid-modal-box">
+    <div class="vid-modal-head">
+      <div class="vid-modal-title" id="vidPlayerTitle">▶ Video</div>
+      <button class="vid-modal-close" onclick="closeVidPlayer()">✕</button>
+    </div>
+    <div class="vid-modal-body" id="vidPlayerBody"></div>
+  </div>
+</div>
+
+<!-- ATTACH VIDEO MODAL -->
+<div class="attach-vid-modal" id="attachVidModal">
+  <div class="attach-vid-box">
+    <div class="attach-vid-head">
+      <h2>▶ Attach Video</h2>
+      <button class="vid-modal-close" onclick="closeAttachVidModal()">✕</button>
+    </div>
+    <div class="attach-vid-body">
+      <div class="av-field">
+        <label>Video Label (name shown on hover)</label>
+        <input type="text" id="avLabel" placeholder="e.g. Chapter Intro">
+      </div>
+      <div class="av-field">
+        <label>Paste Video URL (YouTube, Vimeo, MP4 link…)</label>
+        <input type="text" id="avUrl" placeholder="https://youtube.com/watch?v=...">
+      </div>
+      <div class="av-or">— or —</div>
+      <div class="av-field">
+        <label class="av-upload-label" for="avFileInput">☠ Upload Video File (MP4, WebM…)</label>
+        <input type="file" id="avFileInput" accept="video/*" style="display:none;">
+        <div class="av-progress" id="avProgress"><div class="av-progress-fill" id="avProgressFill"></div></div>
+        <div id="avFileName" style="font-size:8px;color:var(--gold);letter-spacing:2px;margin-top:6px;"></div>
+      </div>
+      <div class="av-actions">
+        <button class="av-btn" onclick="closeAttachVidModal()">Cancel</button>
+        <button class="av-btn pri" onclick="confirmAttachVideo()">Place Button</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ══════════════════════════════════════════════
+//  STATE — persisted via IndexedDB (no size limit)
+//  Meta (chapters, titles) → IDB "meta" store
+//  PDFs & Videos (binary)  → IDB "files" store
+// ══════════════════════════════════════════════
+
+function genId() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+// ── IndexedDB setup ──────────────────────────
+const DB_NAME    = 'CourseViewerDB';
+const DB_VERSION = 1;
+let   db         = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('meta'))  d.createObjectStore('meta');
+      if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function idbGet(store, key) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function idbPut(store, key, value) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).put(value, key);
+    req.onsuccess = () => resolve();
+    req.onerror   = e  => reject(e.target.error);
+  });
+}
+
+function idbDelete(store, key) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror   = e  => reject(e.target.error);
+  });
+}
+
+function idbGetAllKeys(store) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAllKeys();
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+// ── State structure (no file blobs here) ─────
+// state.pdfs[key] = { name, size }         ← no dataUrl!
+// File blobs stored separately in IDB "files" store as key = pdfKey / videoKey
+
+function defaultMeta() {
+  return {
+    courseTitle: "How To Rebirth",
+    chapters: [
+      {
+        id: genId(),
+        name: "The Death of the Old Self",
+        desc: "Identity & Letting Go",
+        pdfKey: null,
+        pdfEnKey: null,
+        subSections: []
+      }
+    ],
+    pdfs: {},        // key → { name, size }
+    videoButtons: {} // chapterId → [{ id, page, xPct, yPct, label, url, fileKey? }]
+  };
+}
+
+let state = defaultMeta();
+let pdfDoc = null;
+let currentPage = 1;
+let totalPages  = 0;
+let zoomLevel   = 1.2;
+let viewMode    = 'single';
+let activeChapterId = null;
+let chapterModalMode = 'add';
+let chapterModalEditId = null;
+let confirmCallback = null;
+
+// ── Save / Load meta (fast — no blobs) ───────
+async function saveState() {
+  try {
+    const s = JSON.parse(JSON.stringify(state));
+    await idbPut('meta', 'state', s);                      // local backup
+    await window.saveAppState?.(s).catch(() => {});         // shared via Firestore
+  } catch(e) {
+    showToast('⚠ Could not save state: ' + e.message);
+  }
+}
+
+async function loadMeta() {
+  // ── Try Firestore first (shared state, works on any device) ──
+  try {
+    await window._firebaseReadyPromise;
+    const remote = await window.loadAppState?.().catch(() => null);
+    if (remote && remote.chapters) {
+      if (!remote.pdfs)         remote.pdfs = {};
+      if (!remote.videoButtons) remote.videoButtons = {};
+      remote.chapters.forEach(ch => {
+        if (!ch.id) ch.id = genId();
+        ch.subSections = (ch.subSections || []).map(s => ({ ...s, id: s.id || genId() }));
+      });
+      state = remote;
+      await idbPut('meta', 'state', remote).catch(() => {}); // keep local in sync
+      return;
+    }
+  } catch(e) { /* fall through to IDB */ }
+
+  // ── Fallback: local IndexedDB ──
+  try {
+    const saved = await idbGet('meta', 'state');
+    if (saved) {
+      if (!saved.pdfs)         saved.pdfs = {};
+      if (!saved.videoButtons) saved.videoButtons = {};
+      saved.chapters.forEach(ch => {
+        if (!ch.id) ch.id = genId();
+        ch.subSections = (ch.subSections || []).map(s => ({ ...s, id: s.id || genId() }));
+      });
+      state = saved;
+    }
+  } catch(e) { /* use defaults */ }
+}
+
+// ── Bootstrap: open DB → load meta → init UI ─
+(async () => {
+  db = await openDB();
+  await loadMeta();
+
+  // Migrate old localStorage data if present (one-time)
+  try {
+    const OLD_KEY = 'courseViewer_v3';
+    const raw = localStorage.getItem(OLD_KEY);
+    if (raw) {
+      const old = JSON.parse(raw);
+      if (old && old.chapters) {
+        showToast('⏳ Migrating old data to IndexedDB…');
+        // Migrate pdfs (dataUrls → IDB files store)
+        const pdfMigrations = Object.entries(old.pdfs || {}).map(async ([key, pdf]) => {
+          if (pdf.dataUrl) {
+            await idbPut('files', 'pdf_' + key, pdf.dataUrl);
+            state.pdfs[key] = { name: pdf.name, size: pdf.size };
+          }
+        });
+        // Migrate videoButtons (dataUrls → IDB files store)
+        const vbMigrations = [];
+        Object.entries(old.videoButtons || {}).forEach(([chId, btns]) => {
+          state.videoButtons[chId] = (btns || []).map(btn => {
+            if (btn.dataUrl) {
+              const fk = 'vid_' + btn.id;
+              vbMigrations.push(idbPut('files', fk, btn.dataUrl));
+              return { ...btn, fileKey: fk, dataUrl: undefined };
+            }
+            return btn;
+          });
+        });
+        state.chapters = old.chapters;
+        state.courseTitle = old.courseTitle || state.courseTitle;
+        await Promise.all([...pdfMigrations, ...vbMigrations]);
+        await saveState();
+        localStorage.removeItem(OLD_KEY);
+        showToast('✅ Data migrated successfully!');
+      }
+    }
+  } catch(e) { /* ignore migration errors */ }
+
+  activeChapterId = null; // start with no chapter selected → show cover
+  buildSidebar();
+  window._appReady = true; // mark app as ready so applyRole can rebuild sidebar
+  // If auth already resolved before app was ready, re-apply now
+  if (window._adminRoleReady) applyRole();
+  document.getElementById('courseTitle').textContent = state.courseTitle;
+  document.getElementById('coverTitle').textContent  = state.courseTitle;
+
+  // Load cover image from Drive (shared for all users)
+  // _firebaseReadyPromise already resolved inside loadMeta, so we can call directly
+  const coverRecord = await window.loadDriveFileRecord?.('cover_image').catch(()=>null);
+  if (coverRecord?.publicUrl) {
+    const img = document.getElementById('coverBgImg');
+    // Test if the Drive file still exists before showing it
+    const testImg = new Image();
+    testImg.onload = () => {
+      img.src = coverRecord.publicUrl;
+      img.onload = () => img.classList.add('loaded');
+      // Show remove button for admin
+      const removeBtn = document.getElementById('removeCoverBtn');
+      if (removeBtn) removeBtn.style.display = '';
+    };
+    testImg.onerror = async () => {
+      // File was deleted from Drive manually — clean up the stale Firestore record
+      console.warn('Cover image no longer exists on Drive. Clearing stale record.');
+      await window.deleteDriveFileRecord?.('cover_image').catch(()=>{});
+    };
+    testImg.src = coverRecord.publicUrl;
+  } else {
+    // Fallback: try local IDB (old data)
+    idbGet('files', 'cover_image').then(dataUrl => {
+      if (dataUrl) {
+        const img = document.getElementById('coverBgImg');
+        img.src = dataUrl;
+        img.onload = () => img.classList.add('loaded');
+        const removeBtn = document.getElementById('removeCoverBtn');
+        if (removeBtn) removeBtn.style.display = '';
+      }
+    });
+  }
+})();
+
+// ── COVER IMAGE UPLOAD ──────────────────────────
+async function handleCoverImageUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  showLoading('Uploading cover image to Drive…');
+  try {
+    const { fileId, publicUrl } = await uploadToDrive(file, 'cover_image_' + Date.now() + '.' + file.name.split('.').pop());
+    await window.saveDriveFileRecord('cover_image', { fileId, publicUrl, type: 'image', name: file.name });
+    const img = document.getElementById('coverBgImg');
+    img.classList.remove('loaded');
+    img.src = publicUrl;
+    img.onload = () => img.classList.add('loaded');
+    const removeBtn = document.getElementById('removeCoverBtn');
+    if (removeBtn) removeBtn.style.display = '';
+    hideLoading();
+    showToast('✅ Cover image saved to Drive!');
+  } catch(err) {
+    hideLoading();
+    showToast('⚠ Upload failed: ' + err.message);
+    console.error(err);
+  }
+}
+
+// ── REMOVE COVER IMAGE ──────────────────────────
+async function handleRemoveCoverImage() {
+  if (!confirm('Remove the cover image? This will delete it from Drive and Firestore.')) return;
+  showLoading('Removing cover image…');
+  try {
+    // Delete from Drive (needs the fileId stored in Firestore)
+    const record = await window.loadDriveFileRecord?.('cover_image').catch(()=>null);
+    if (record?.fileId) await deleteFromDrive(record.fileId);
+    // Delete Firestore record
+    await window.deleteDriveFileRecord?.('cover_image').catch(()=>{});
+    // Delete from IDB legacy fallback too
+    await idbDelete('files', 'cover_image').catch(()=>{});
+    // Clear the image from the UI
+    const img = document.getElementById('coverBgImg');
+    img.classList.remove('loaded');
+    img.src = '';
+    const removeBtn = document.getElementById('removeCoverBtn');
+    if (removeBtn) removeBtn.style.display = 'none';
+    hideLoading();
+    showToast('✅ Cover image removed');
+  } catch(err) {
+    hideLoading();
+    showToast('⚠ Remove failed: ' + err.message);
+  }
+}
+// ══ RATING SYSTEM ══
+let _userRating = 0; // current user's submitted rating (0 = not yet rated)
+
+// ── Expose rating functions on window so the module script can call them ──
+window.initRating = initRating;
+
+// If auth resolved before this script ran, pick up the deferred uid
+if (window._pendingRatingUid) {
+  initRating(window._pendingRatingUid);
+  window._pendingRatingUid = null;
+}
+
+// Highlight stars up to index n on hover
+function hoverStars(n) {
+  document.querySelectorAll('.star-btn').forEach((btn, i) => {
+    btn.style.color = i < n ? 'var(--gold-light)' : '';
+  });
+}
+
+// Reset stars back to the user's own saved rating highlight
+function resetStarHover() {
+  updateStarDisplay(_userRating);
+}
+
+// Visually fill stars up to `rating`
+function updateStarDisplay(rating) {
+  document.querySelectorAll('.star-btn').forEach((btn, i) => {
+    btn.classList.toggle('lit', i < rating);
+    btn.style.color = '';
+  });
+}
+
+// Submit a rating — saves to Firestore under ratings/{userId} and updates aggregate
+async function submitRating(stars) {
+  const uid = window._currentUserId;
+  if (!uid) { showToast('⚠ Sign in to rate'); return; }
+
+  try {
+    // Wait for the Firebase module to finish registering all helpers
+    await window._firebaseReadyPromise;
+    if (typeof window.saveRating !== 'function') throw new Error('Firebase not ready');
+
+    await window.saveRating(uid, stars);
+    _userRating = stars;
+    updateStarDisplay(stars);
+
+    // Show thank-you message
+    const thanks = document.getElementById('ratingThanks');
+    if (thanks) { thanks.style.display = ''; }
+
+    // Refresh the aggregate summary
+    await loadRatingSummary();
+    showToast('✦ Rating saved!');
+  } catch(e) {
+    showToast('⚠ Could not save: ' + (e?.code || e?.message || e));
+    console.error('submitRating error:', e);
+  }
+}
+
+// Load and display the average rating + count with animation
+async function loadRatingSummary() {
+  try {
+    await window._firebaseReadyPromise;
+    const data = await window.loadAllRatings?.();
+    const summary = document.getElementById('ratingSummary');
+    
+    if (!data || data.count === 0) {
+      if (summary) summary.textContent = 'Be the first to rate!';
+      return;
+    }
+    
+    const avg = (data.total / data.count).toFixed(1);
+    const filledStars = Math.round(data.total / data.count);
+    
+    // If user already rated, show their rating
+    if (_userRating > 0) {
+      updateStarDisplay(_userRating);
+      if (summary) summary.textContent = `★ ${_userRating} · Your rating`;
+      return;
+    }
+    
+    // NEW USER: Show aggregate rating temporarily for 1 second to draw attention
+    updateStarDisplay(filledStars);
+    if (summary) summary.textContent = `★ ${avg} · ${data.count} rating${data.count !== 1 ? 's' : ''}`;
+    
+    // After 1 second, reset stars to empty so user can rate
+    setTimeout(() => {
+      // Only reset if user still hasn't rated (check _userRating again)
+      if (_userRating === 0) {
+        updateStarDisplay(0);
+        if (summary) summary.textContent = 'Click a star to rate';
+      }
+    }, 1000);
+    
+  } catch(e) { /* silent */ }
+}
+
+// Called once on app init to pre-load the user's existing rating + summary
+async function initRating(uid) {
+  if (!uid) return;
+  try {
+    await window._firebaseReadyPromise;
+    const myRating = await window.loadUserRating?.(uid);
+    if (myRating) {
+      _userRating = myRating;
+      updateStarDisplay(myRating);
+      const thanks = document.getElementById('ratingThanks');
+      if (thanks) thanks.style.display = '';
+    }
+  } catch(e) { /* silent */ }
+  // This will trigger the animation for new users
+  await loadRatingSummary();
+}
+
+function showCoverScreen() {
+  document.getElementById('coverScreen').style.display   = 'flex';
+  document.getElementById('viewerControls').style.display = 'none';
+  document.getElementById('scrollNav').style.display      = 'none';
+  document.getElementById('canvasWrap').querySelectorAll('.page-canvas-container').forEach(el => el.remove());
+  document.getElementById('topPageIndicator').textContent  = '— / —';
+  document.getElementById('dropZone').style.display = 'none';
+  pdfDoc = null; totalPages = 0;
+}
+
+function hideCoverScreen() {
+  document.getElementById('coverScreen').style.display = 'none';
+}
+
+function goHome() {
+  closeMobileSidebar();
+  activeChapterId = null;
+  // Deactivate all chapter buttons
+  document.querySelectorAll('.chapter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sub-sections').forEach(s => s.classList.remove('open'));
+  // Activate home button
+  document.getElementById('homeBtn').classList.add('active');
+  showCoverScreen();
+}
+
+// ══ SIDEBAR BUILD ══
+function buildSidebar() {
+  const list = document.getElementById('chapterList');
+
+  // Non-admins only see visible chapters
+  const visibleChapters = window.IS_ADMIN
+    ? state.chapters
+    : state.chapters.filter(ch => !ch.hidden);
+
+  if (!visibleChapters.length) {
+    list.innerHTML = `<div style="padding:28px 18px;text-align:center;">
+      <div style="font-size:28px;opacity:.1;margin-bottom:10px;">☠</div>
+      <p style="font-size:8px;letter-spacing:3px;color:var(--smoke);text-transform:uppercase;line-height:2;">${window.IS_ADMIN ? 'No chapters yet.<br>Click + Add to create one.' : 'No chapters available yet.'}</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = visibleChapters.map((ch, ci) => {
+    const isActive = ch.id === activeChapterId;
+    const pdf   = ch.pdfKey   ? state.pdfs[ch.pdfKey]   : null;
+    const pdfEn = ch.pdfEnKey ? state.pdfs[ch.pdfEnKey] : null;
+    const romanNum = window.IS_ADMIN ? toRoman(state.chapters.indexOf(ch) + 1) : toRoman(ci + 1);
+
+    // Arabic badge always shown; English badge only shown when attached
+    const arBadge = pdf
+      ? `<div class="chapter-pdf-badge">🇪🇬 ${escHtml(pdf.name)}</div>`
+      : `<div class="chapter-pdf-badge" style="color:var(--smoke)">No Arabic PDF</div>`;
+    const enBadge = pdfEn
+      ? `<div class="chapter-pdf-badge" style="color:#5b9bd5;">🇬🇧 ${escHtml(pdfEn.name)}</div>`
+      : (window.IS_ADMIN ? `<div class="chapter-pdf-badge" style="color:var(--smoke)">No English PDF</div>` : '');
+
+    return `
+    <div class="chapter-item${ch.hidden ? ' ch-hidden' : ''}" id="chItem_${ch.id}">
+      <div class="chapter-header">
+        <button class="chapter-btn ${isActive ? 'active' : ''}"
+          style="animation-delay:${ci * 0.06}s"
+          id="chBtn_${ch.id}"
+          onclick="chapterClick('${ch.id}')">
+          <div class="chapter-num">${romanNum}</div>
+          <div class="chapter-info">
+            <div class="chapter-name">${escHtml(ch.name)}${ch.hidden && window.IS_ADMIN ? '<span class="ch-hidden-badge">HIDDEN</span>' : ''}</div>
+            <div class="chapter-sub">${escHtml(ch.desc)}</div>
+            ${arBadge}${enBadge}
+          </div>
+        </button>
+      </div>
+
+      ${window.IS_ADMIN ? `
+      <div class="chapter-actions">
+        <button class="ch-action-btn upload-pdf-btn" onclick="attachPdfToChapter('${ch.id}')">📎 Attach AR PDF</button>
+        <button class="ch-action-btn upload-pdf-en-btn" onclick="attachEnPdfToChapter('${ch.id}')">📎 Attach EN PDF</button>
+        <button class="ch-action-btn" onclick="openEditChapterModal('${ch.id}')">✎ Edit</button>
+        <button class="ch-action-btn ${ch.hidden ? 'show-btn' : 'hide-btn'}" onclick="toggleChapterVisibility('${ch.id}')">${ch.hidden ? '👁 Show' : '🚫 Hide'}</button>
+        <button class="ch-action-btn danger" onclick="confirmDeleteChapter('${ch.id}')">✕ Delete</button>
+      </div>` : ''}
+
+      <div class="sub-sections ${isActive ? 'open' : ''}" id="sub_${ch.id}">
+        ${ch.subSections.map(s => `
+          <div class="sub-btn" id="subBtn_${s.id}" onclick="subSectionClick('${ch.id}', ${s.page})">
+            <span class="sub-bullet"></span>
+            <span>${escHtml(s.name)}</span>
+            <span class="sub-page-num">p.${s.page}</span>
+            ${window.IS_ADMIN ? `<button class="sub-delete-btn" onclick="event.stopPropagation();confirmDeleteSection('${ch.id}','${s.id}')">✕</button>` : ''}
+          </div>
+        `).join('')}
+        ${window.IS_ADMIN ? `<div class="add-section-row">
+          <input class="add-section-input" id="secName_${ch.id}" placeholder="Point name" maxlength="50">
+          <input class="add-section-pg" id="secPage_${ch.id}" type="number" min="1" placeholder="Pg">
+          <button class="add-section-btn" onclick="addSection('${ch.id}')">+</button>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Allow Enter key in section inputs
+  visibleChapters.forEach(ch => {
+    const nameInput = document.getElementById(`secName_${ch.id}`);
+    const pgInput   = document.getElementById(`secPage_${ch.id}`);
+    if (nameInput) nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addSection(ch.id); });
+    if (pgInput)   pgInput.addEventListener('keydown',   e => { if (e.key === 'Enter') addSection(ch.id); });
+  });
+
+  // Show/hide admin-only elements within the freshly rendered sidebar
+  document.querySelectorAll(".admin-only").forEach(el => {
+    el.style.display = window.IS_ADMIN ? "" : "none";
+  });
+
+
+}
+
+// ══ TOGGLE CHAPTER VISIBILITY (admin only) ══
+function toggleChapterVisibility(id) {
+  const ch = state.chapters.find(c => c.id === id);
+  if (!ch) return;
+  ch.hidden = !ch.hidden;
+  saveState();
+  buildSidebar();
+  showToast(ch.hidden ? '\uD83D\uDEAB "' + ch.name + '" hidden from users' : '\uD83D\uDC41 "' + ch.name + '" now visible to users');
+}
+
+function toRoman(n) {
+  const r = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+  return r[n - 1] || n;
+}
+
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══ CHAPTER CLICK ══
+async function chapterClick(id) {
+  closeMobileSidebar();
+  activeChapterId = id;
+  const ch = state.chapters.find(c => c.id === id);
+  if (!ch) return;
+
+  hideCoverScreen();
+  document.getElementById('homeBtn').classList.remove('active');
+  document.querySelectorAll('.chapter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sub-sections').forEach(s => s.classList.remove('open'));
+  const btn = document.getElementById(`chBtn_${id}`);
+  if (btn) btn.classList.add('active');
+  const sub = document.getElementById(`sub_${id}`);
+  if (sub) sub.classList.add('open');
+
+  // Load the attached PDF — respect active language
+  const activeLang = chapterLang[id] || 'ar';
+  const activeKey  = activeLang === 'en' ? ch.pdfEnKey : ch.pdfKey;
+
+  // Show/hide the lang toggle in the toolbar
+  _updateLangToggleUI(ch, activeLang);
+
+  if (activeKey && state.pdfs[activeKey]) {
+    showLoading('Loading PDF…');
+    await window._firebaseReadyPromise;
+    const record = await window.loadDriveFileRecord?.('pdf_' + activeKey).catch(()=>null);
+    if (record?.fileId) {
+      loadPdfFromDriveId(record.fileId);
+    } else {
+      idbGet('files', 'pdf_' + activeKey).then(dataUrl => {
+        if (dataUrl) loadPdfFromDataUrl(dataUrl);
+        else { hideLoading(); showToast('⚠ PDF not found — please re-upload'); }
+      });
+    }
+  } else {
+    // No PDF — show a minimal empty state (not the cover)
+    document.getElementById('langToggleWrap').classList.remove('visible');
+    pdfDoc = null;
+    totalPages = 0;
+    document.getElementById('viewerControls').style.display = 'none';
+    document.getElementById('scrollNav').style.display = 'none';
+    document.getElementById('dropZone').style.display = 'flex';
+    document.getElementById('canvasWrap').querySelectorAll('.page-canvas-container').forEach(el => el.remove());
+    document.getElementById('topPageIndicator').textContent = '— / —';
+    showToast('No PDF attached to this chapter — use 📎 Attach PDF');
+  }
+}
+
+// ══ SUB-SECTION CLICK ══
+function subSectionClick(chapterId, page) {
+  // Make sure chapter is active first
+  if (activeChapterId !== chapterId) {
+    chapterClick(chapterId);
+    // Wait for PDF to load then jump
+    setTimeout(() => { if (pdfDoc) jumpToPdfPage(page, true); }, 1200);
+    return;
+  }
+  if (pdfDoc) {
+    jumpToPdfPage(page, true);
+  } else {
+    showToast('No PDF loaded for this chapter');
+  }
+}
+
+// ══ ADD SECTION ══
+function addSection(chId) {
+  const nameEl = document.getElementById(`secName_${chId}`);
+  const pgEl   = document.getElementById(`secPage_${chId}`);
+  const name   = nameEl.value.trim();
+  const page   = parseInt(pgEl.value);
+
+  if (!name) { showToast('Enter a point name'); nameEl.focus(); return; }
+  if (!page || page < 1) { showToast('Enter a valid page number'); pgEl.focus(); return; }
+
+  const ch = state.chapters.find(c => c.id === chId);
+  if (!ch) return;
+
+  ch.subSections.push({ id: genId(), name, page });
+  saveState();
+  buildSidebar();
+  showToast(`Point "${name}" added`);
+}
+
+// ══ DELETE SECTION ══
+function confirmDeleteSection(chId, secId) {
+  const ch  = state.chapters.find(c => c.id === chId);
+  const sec = ch?.subSections.find(s => s.id === secId);
+  if (!sec) return;
+  showConfirm(
+    'Delete Point',
+    `Delete "${sec.name}"?`,
+    () => {
+      ch.subSections = ch.subSections.filter(s => s.id !== secId);
+      saveState();
+      buildSidebar();
+      showToast('Point deleted');
+    }
+  );
+}
+
+function attachPdfToChapter(chId) {
+  openPdfManager(chId, 'ar');
+}
+
+function attachEnPdfToChapter(chId) {
+  openPdfManager(chId, 'en');
+}
+
+// ── Per-chapter active language tracker ──
+const chapterLang = {};
+
+// Update the toolbar toggle to match current chapter + lang
+function _updateLangToggleUI(ch, lang) {
+  const wrap = document.getElementById('langToggleWrap');
+  const hasBoth = ch && ch.pdfKey && state.pdfs[ch.pdfKey] && ch.pdfEnKey && state.pdfs[ch.pdfEnKey];
+  if (hasBoth) {
+    wrap.classList.add('visible');
+    document.getElementById('langTabAr').classList.toggle('active', lang === 'ar');
+    document.getElementById('langTabEn').classList.toggle('active', lang === 'en');
+  } else {
+    wrap.classList.remove('visible');
+  }
+}
+
+// Called by the toggle buttons in the toolbar
+async function switchLang(lang) {
+  if (!activeChapterId) return;
+  const ch = state.chapters.find(c => c.id === activeChapterId);
+  if (!ch) return;
+
+  const key = lang === 'en' ? ch.pdfEnKey : ch.pdfKey;
+  if (!key || !state.pdfs[key]) {
+    showToast(lang === 'en' ? '⚠ No English PDF attached' : '⚠ No Arabic PDF attached');
+    return;
+  }
+
+  chapterLang[activeChapterId] = lang;
+  _updateLangToggleUI(ch, lang);
+
+  showLoading('Switching language…');
+  await window._firebaseReadyPromise;
+  const record = await window.loadDriveFileRecord?.('pdf_' + key).catch(() => null);
+  if (record?.fileId) {
+    loadPdfFromDriveId(record.fileId);
+  } else {
+    idbGet('files', 'pdf_' + key).then(dataUrl => {
+      if (dataUrl) loadPdfFromDataUrl(dataUrl);
+      else { hideLoading(); showToast('⚠ PDF not found — please re-upload'); }
+    });
+  }
+}
+
+// ══ ADD / EDIT CHAPTER MODAL ══
+function openAddChapterModal() {
+  chapterModalMode = 'add';
+  chapterModalEditId = null;
+  document.getElementById('chapterModalTitle').textContent = 'Add Chapter';
+  document.getElementById('chModalName').value = '';
+  document.getElementById('chModalDesc').value = '';
+  document.getElementById('chapterModal').classList.add('open');
+  setTimeout(() => document.getElementById('chModalName').focus(), 100);
+}
+
+function openEditChapterModal(id) {
+  const ch = state.chapters.find(c => c.id === id);
+  if (!ch) return;
+  chapterModalMode = 'edit';
+  chapterModalEditId = id;
+  document.getElementById('chapterModalTitle').textContent = 'Edit Chapter';
+  document.getElementById('chModalName').value = ch.name;
+  document.getElementById('chModalDesc').value = ch.desc;
+  document.getElementById('chapterModal').classList.add('open');
+  setTimeout(() => document.getElementById('chModalName').focus(), 100);
+}
+
+function closeChapterModal() {
+  document.getElementById('chapterModal').classList.remove('open');
+}
+
+function saveChapterModal() {
+  const name = document.getElementById('chModalName').value.trim();
+  const desc = document.getElementById('chModalDesc').value.trim();
+  if (!name) { showToast('Enter a chapter name'); return; }
+
+  if (chapterModalMode === 'add') {
+    state.chapters.push({
+      id: genId(),
+      name,
+      desc: desc || '',
+      pdfKey: null,
+      subSections: []
+    });
+    showToast(`Chapter "${name}" added`);
+  } else {
+    const ch = state.chapters.find(c => c.id === chapterModalEditId);
+    if (ch) { ch.name = name; ch.desc = desc; }
+    showToast('Chapter updated');
+  }
+
+  saveState();
+  closeChapterModal();
+  buildSidebar();
+}
+
+// ══ DELETE CHAPTER ══
+function confirmDeleteChapter(id) {
+  const ch = state.chapters.find(c => c.id === id);
+  if (!ch) return;
+  showConfirm(
+    'Delete Chapter',
+    `Delete chapter "${ch.name}" and all its points?`,
+    () => {
+      state.chapters = state.chapters.filter(c => c.id !== id);
+      if (activeChapterId === id) activeChapterId = state.chapters[0]?.id || null;
+      saveState();
+      buildSidebar();
+      showToast('Chapter deleted');
+    }
+  );
+}
+
+// ══ PDF MANAGER ══
+let pdfManagerTargetChId = null;
+let pdfManagerTargetLang = 'ar';
+
+function openPdfManager(targetChId, lang) {
+  pdfManagerTargetChId = targetChId || null;
+  pdfManagerTargetLang = lang || 'ar';
+  document.getElementById('pdfManager').classList.add('open');
+  setTimeout(renderPdfManager, 10); // Small delay ensures DOM is ready
+}
+
+function closePdfManager() {
+  document.getElementById('pdfManager').classList.remove('open');
+  pdfManagerTargetChId = null;
+  pdfManagerTargetLang = 'ar';
+}
+
+function renderPdfManager() {
+  const body = document.getElementById('pdfManagerBody');
+  if (!body) return; // Safety check
+  
+  const keys = Object.keys(state.pdfs || {});
+  let heading = '';
+  
+  if (pdfManagerTargetChId) {
+    const ch = state.chapters.find(c => c.id === pdfManagerTargetChId);
+    if (ch) {
+      const langLabel = pdfManagerTargetLang === 'en' ? '🇬🇧 ENGLISH PDF' : '🇪🇬 ARABIC PDF';
+      heading = `<div style="background:rgba(184,150,12,.08);border:1px solid var(--gold);padding:12px 16px;margin-bottom:16px;font-size:9px;letter-spacing:2px;color:var(--gold);text-transform:uppercase;border-radius:4px;">
+        📎 ATTACH ${langLabel} TO: <strong style="color:var(--gold-light);">${escHtml(ch.name)}</strong>
+      </div>`;
+    }
+  }
+
+  if (!keys.length) {
+    body.innerHTML = heading + `<div class="pdf-manager-empty">
+      No PDFs uploaded yet.<br><strong>Drag & drop or click to upload ☠</strong>
+    </div>`;
+    return;
+  }
+
+  body.innerHTML = heading + keys.map(key => {
+    const pdf = state.pdfs[key];
+    const sizeKb = Math.round((pdf.size || 0) / 1024);
+    const attached = state.chapters.filter(ch => ch.pdfKey === key).length;
+    return `<div class="pdf-item" onclick="pdfManagerItemClick('${key}')">
+      <div class="pdf-item-icon">📄</div>
+      <div class="pdf-item-info">
+        <div class="pdf-item-name">${escHtml(pdf.name)}</div>
+        <div class="pdf-item-meta">${sizeKb}KB • ${attached ? 'In use' : 'Available'}</div>
+      </div>
+      <div class="pdf-item-actions" onclick="event.stopPropagation()">
+        <button class="pdf-icon-btn" onclick="previewPdf('${key}')" title="Preview">👁</button>
+        <button class="pdf-icon-btn" onclick="renamePdf('${key}')" title="Rename">✎</button>
+        <button class="pdf-icon-btn del" onclick="confirmDeletePdf('${key}')" title="Delete">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function pdfManagerItemClick(key) {
+  if (!state.pdfs[key]) return;
+  
+  if (pdfManagerTargetChId) {
+    const ch = state.chapters.find(c => c.id === pdfManagerTargetChId);
+    if (ch) {
+      if (pdfManagerTargetLang === 'en') {
+        ch.pdfEnKey = key;
+      } else {
+        ch.pdfKey = key;
+      }
+      await saveState();
+      buildSidebar();
+      const langLabel = pdfManagerTargetLang === 'en' ? 'English' : 'Arabic';
+      showToast(`✅ ${langLabel} PDF attached to "${ch.name}"`);
+      closePdfManager();
+      // Refresh toggle in case we just completed the pair
+      const activeLang = chapterLang[pdfManagerTargetChId] || 'ar';
+      _updateLangToggleUI(ch, activeLang);
+      // Only reload if attached lang matches the currently active lang
+      if (activeChapterId === pdfManagerTargetChId && activeLang === pdfManagerTargetLang) {
+        showLoading('Loading PDF…');
+        const record = await window.loadDriveFileRecord?.('pdf_' + key).catch(()=>null);
+        if (record?.fileId) loadPdfFromDriveId(record.fileId);
+        else {
+          idbGet('files', 'pdf_' + key).then(dataUrl => {
+            if (dataUrl) loadPdfFromDataUrl(dataUrl);
+            else { hideLoading(); showToast('⚠ PDF not found'); }
+          });
+        }
+      }
+      return;
+    }
+  }
+  
+  // Preview mode
+  showLoading('Loading PDF…');
+  const record = await window.loadDriveFileRecord?.('pdf_' + key).catch(()=>null);
+  if (record?.fileId) {
+    loadPdfFromDriveId(record.fileId);
+  } else {
+    const dataUrl = await idbGet('files', 'pdf_' + key);
+    if (dataUrl) loadPdfFromDataUrl(dataUrl);
+    else { hideLoading(); showToast('⚠ PDF not found'); }
+  }
+  closePdfManager();
+  showToast(`📖 Loaded: ${state.pdfs[key].name}`);
+}
+
+function previewPdf(key) {
+  pdfManagerItemClick(key);
+}
+
+async function handleGlobalPdfUpload(e) {
+  const files = Array.from(e.target.files);
+  e.target.value = '';
+  
+  files.forEach(async file => {
+    if (file.type !== 'application/pdf') return;
+    
+    showLoading(`Uploading ${file.name} to Drive…`);
+    try {
+      const key = genId();
+      const { fileId, publicUrl, pdfUrl } = await uploadToDrive(file, file.name);
+      // Save Drive record to Firestore
+      await window.saveDriveFileRecord('pdf_' + key, {
+        fileId, publicUrl, pdfUrl, type: 'pdf', name: file.name
+      });
+      // Only metadata in local state
+      state.pdfs[key] = {
+        name: file.name.replace(/\.pdf$/i, ''),
+        size: file.size
+      };
+      await saveState();
+      renderPdfManager();
+      hideLoading();
+      showToast(`✅ "${state.pdfs[key].name}" uploaded to Drive!`);
+      
+      if (pdfManagerTargetChId) {
+        pdfManagerItemClick(key);
+      }
+    } catch(err) {
+      hideLoading();
+      showToast('⚠ Upload failed: ' + err.message);
+      console.error(err);
+    }
+  });
+}
+
+function renamePdf(key) {
+  const pdf = state.pdfs[key];
+  if (!pdf) return;
+  const newName = prompt('Rename PDF:', pdf.name);
+  if (newName && newName.trim()) {
+    pdf.name = newName.trim();
+    saveState();  // async but no await needed here
+    renderPdfManager();
+    buildSidebar();
+    showToast('PDF renamed');
+  }
+}
+
+async function confirmDeletePdf(key) {
+  const pdf = state.pdfs[key];
+  if (!pdf) return;
+  showConfirm(
+    'Delete PDF',
+    `Delete "${pdf.name}"? Chapters using it will lose their PDF attachment.`,
+    async () => {
+      // Delete from Drive
+      const record = await window.loadDriveFileRecord?.('pdf_' + key).catch(()=>null);
+      if (record?.fileId) await deleteFromDrive(record.fileId);
+      await window.deleteDriveFileRecord?.('pdf_' + key).catch(()=>{});
+      // Also clean up IDB fallback
+      idbDelete('files', 'pdf_' + key).catch(()=>{});
+      delete state.pdfs[key];
+      // Detach from chapters
+      state.chapters.forEach(ch => { if (ch.pdfKey === key) ch.pdfKey = null; });
+      await saveState();
+      renderPdfManager();
+      buildSidebar();
+      showToast('PDF deleted');
+    }
+  );
+}
+
+// ══ PDF LOAD ══
+// Load PDF from Drive without requiring user sign-in.
+// Uses API key for public files (viewers), falls back to OAuth token for admin.
+async function loadPdfFromDriveId(fileId) {
+  showLoading('Loading PDF…');
+  try {
+    let res;
+
+    // Try with API key first (no sign-in needed, works for public files)
+    if (DRIVE_API_KEY) {
+      res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${DRIVE_API_KEY}`
+      );
+    }
+
+    // If no API key or it failed, try with OAuth token (admin already signed in)
+    if (!res || !res.ok) {
+      if (_driveAccessToken) {
+        res = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+          { headers: { Authorization: 'Bearer ' + _driveAccessToken } }
+        );
+      }
+    }
+
+    // Last resort: prompt sign-in (only hits if no API key and not signed in)
+    if (!res || !res.ok) {
+      const token = await loadDriveAuth();
+      res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+    }
+
+    if (!res.ok) throw new Error('Drive fetch failed: ' + res.status);
+    const buf = await res.arrayBuffer();
+    _loadPdfFromBuffer(buf);
+  } catch(err) {
+    hideLoading();
+    showToast('⚠ Could not load PDF: ' + err.message);
+    console.error(err);
+  }
+}
+
+// Load PDF from a direct URL (fallback for non-Drive sources)
+function loadPdfFromUrl(url) {
+  showLoading('Loading PDF…');
+  pdfjsLib.getDocument({ url, withCredentials: false }).promise.then(pdf => {
+    _onPdfLoaded(pdf);
+  }).catch(err => {
+    hideLoading();
+    showToast('Error rendering PDF');
+    console.error(err);
+  });
+}
+
+function _loadPdfFromBuffer(buf) {
+  pdfjsLib.getDocument({ data: buf }).promise.then(pdf => {
+    _onPdfLoaded(pdf);
+  }).catch(err => {
+    hideLoading();
+    showToast('Error rendering PDF');
+    console.error(err);
+  });
+}
+
+function _onPdfLoaded(pdf) {
+  pdfDoc      = pdf;
+  totalPages  = pdf.numPages;
+  currentPage = 1;
+  document.getElementById('viewerControls').style.display = 'flex';
+  document.getElementById('scrollNav').style.display = 'flex';
+  document.getElementById('dropZone').style.display = 'none';
+  document.getElementById('pageJumpInput').max = totalPages;
+  hideLoading();
+  renderCurrentView();
+  showToast('PDF loaded — ' + totalPages + ' pages');
+}
+
+function loadPdfFromDataUrl(dataUrl) {
+  showLoading('Loading PDF…');
+  // Convert dataUrl to ArrayBuffer
+  fetch(dataUrl)
+    .then(r => r.arrayBuffer())
+    .then(buf => {
+      pdfjsLib.getDocument({ data: buf }).promise.then(pdf => {
+        pdfDoc      = pdf;
+        totalPages  = pdf.numPages;
+        currentPage = 1;
+        document.getElementById('viewerControls').style.display = 'flex';
+        document.getElementById('scrollNav').style.display = 'flex';
+        document.getElementById('dropZone').style.display = 'none';
+        document.getElementById('pageJumpInput').max = totalPages;
+        hideLoading();
+        renderCurrentView();
+        showToast('PDF loaded — ' + totalPages + ' pages');
+      }).catch(err => {
+        hideLoading();
+        showToast('Error rendering PDF');
+        console.error(err);
+      });
+    })
+    .catch(err => {
+      hideLoading();
+      showToast('Error loading PDF data');
+      console.error(err);
+    });
+}
+
+// ══ RENDER ══
+async function renderCurrentView() {
+  if (!pdfDoc) return;
+  const wrap = document.getElementById('canvasWrap');
+  document.getElementById('dropZone').style.display = 'none';
+  wrap.querySelectorAll('.page-canvas-container').forEach(el => el.remove());
+
+  if (viewMode === 'single') {
+    await renderPage(currentPage, wrap);
+  } else {
+    showLoading('Rendering all pages…');
+    for (let p = 1; p <= totalPages; p++) {
+      setLoadingProgress(p / totalPages * 100, `Page ${p} of ${totalPages}`);
+      await renderPage(p, wrap);
+    }
+    hideLoading();
+  }
+  updateUI();
+}
+
+async function renderPage(pageNum, container) {
+  const page = await pdfDoc.getPage(pageNum);
+
+  // Auto-fit: scale so the PDF fills the available canvas width
+  const baseViewport = page.getViewport({ scale: 1 });
+  const canvasWrap = document.getElementById('canvasWrap');
+  const containerWidth = (canvasWrap && canvasWrap.clientWidth > 0)
+    ? canvasWrap.clientWidth
+    : (container.clientWidth > 0 ? container.clientWidth : window.innerWidth);
+  // Subtract small padding so it never overflows
+  const availableWidth = Math.max(containerWidth - 32, 100);
+  const autoScale = availableWidth / baseViewport.width;
+  // On mobile/fullscreen always auto-fit; on desktop respect manual zoom
+  const isMobile = window.innerWidth <= 768 || !!document.fullscreenElement;
+  const scale = isMobile ? autoScale * zoomLevel : zoomLevel;
+  const viewport = page.getViewport({ scale });
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'page-canvas-container';
+  wrapper.id = `pageContainer_${pageNum}`;
+  // Constrain wrapper to available width
+  wrapper.style.width = Math.round(viewport.width) + 'px';
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = viewport.width;
+  canvas.height = viewport.height;
+  // Make canvas responsive
+  canvas.style.width  = '100%';
+  canvas.style.height = 'auto';
+
+  const label = document.createElement('div');
+  label.className = 'page-overlay-label';
+  label.textContent = `Page ${pageNum}`;
+
+  wrapper.appendChild(canvas);
+  wrapper.appendChild(label);
+  container.appendChild(wrapper);
+
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  wrapper.addEventListener('click', (e) => {
+    if (e.target.closest('.vid-btn')) return;
+    // Don't fire a click if the user was dragging to pan
+    if (window._wasPanning) return;
+    handleCanvasClick(e, wrapper, pageNum);
+  });
+
+  canvas.style.opacity = '0';
+  canvas.style.transition = 'opacity .4s';
+  requestAnimationFrame(() => { canvas.style.opacity = '1'; });
+}
+
+// ══ NAVIGATION ══
+function prevPage() {
+  if (!pdfDoc || currentPage <= 1) return;
+  currentPage--;
+  if (viewMode === 'all') {
+    updateUI();
+    const el = document.getElementById(`pageContainer_${currentPage}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    renderCurrentView();
+    scrollToTop();
+  }
+}
+function nextPage() {
+  if (!pdfDoc || currentPage >= totalPages) return;
+  currentPage++;
+  if (viewMode === 'all') {
+    updateUI();
+    const el = document.getElementById(`pageContainer_${currentPage}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    renderCurrentView();
+    scrollToTop();
+  }
+}
+function jumpToPdfPage(page, animate) {
+  if (!pdfDoc) return;
+  currentPage = Math.max(1, Math.min(page, totalPages));
+  if (viewMode === 'all') {
+    const el = document.getElementById(`pageContainer_${currentPage}`);
+    if (el) el.scrollIntoView({ behavior: animate ? 'smooth' : 'auto', block: 'start' });
+  } else {
+    renderCurrentView();
+    if (animate) scrollToTop();
+  }
+  updateUI();
+}
+function jumpToPage() {
+  const val = parseInt(document.getElementById('pageJumpInput').value);
+  if (val >= 1 && val <= totalPages) jumpToPdfPage(val, true);
+}
+function scrollToTop() {
+  document.getElementById('canvasWrap').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ══ ZOOM ══
+function zoom(delta) {
+  zoomLevel = Math.max(1, Math.min(3, zoomLevel + delta));
+  document.getElementById('zoomVal').textContent = Math.round(zoomLevel * 100) + '%';
+  if (pdfDoc) renderCurrentView();
+}
+
+// ══ PINCH-TO-ZOOM removed — use + / - buttons to zoom ══
+
+// ══ MOUSE DRAG-TO-PAN (desktop) ══
+(function initMousePan() {
+  let _dragging  = false;
+  let _startX    = 0;
+  let _startY    = 0;
+  let _scrollX   = 0;
+  let _scrollY   = 0;
+
+  function getWrap() { return document.getElementById('canvasWrap'); }
+
+  // Only activate drag-pan when content is actually wider/taller than the wrap
+  function isPannable(wrap) {
+    return wrap.scrollWidth > wrap.clientWidth + 2 ||
+           wrap.scrollHeight > wrap.clientHeight + 2;
+  }
+
+  document.addEventListener('mousedown', function(e) {
+    // Only left-click, only inside canvasWrap, ignore clicks on vid-btn or controls
+    if (e.button !== 0) return;
+    const wrap = getWrap();
+    if (!wrap || !wrap.contains(e.target)) return;
+    if (e.target.closest('.vid-btn')) return;
+    if (!isPannable(wrap)) return;
+
+    _dragging = true;
+    _startX   = e.clientX;
+    _startY   = e.clientY;
+    _scrollX  = wrap.scrollLeft;
+    _scrollY  = wrap.scrollTop;
+    wrap.style.cursor = 'grabbing';
+    wrap.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!_dragging) return;
+    const wrap = getWrap();
+    if (!wrap) return;
+    const dx = e.clientX - _startX;
+    const dy = e.clientY - _startY;
+    // Mark as a real pan if moved more than 4px
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) window._wasPanning = true;
+    wrap.scrollLeft = _scrollX - dx;
+    wrap.scrollTop  = _scrollY - dy;
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!_dragging) return;
+    _dragging = false;
+    const wrap = getWrap();
+    if (wrap) {
+      wrap.style.cursor = '';
+      wrap.style.userSelect = '';
+    }
+    // Clear pan flag after click event has had time to fire
+    setTimeout(() => { window._wasPanning = false; }, 0);
+  });
+
+  // Also show grab cursor whenever content overflows (on zoom change)
+  const _origZoom = window.zoom;
+  window.zoom = function(delta) {
+    _origZoom(delta);
+    // Update cursor after re-render settles
+    setTimeout(() => {
+      const wrap = getWrap();
+      if (wrap && isPannable(wrap)) wrap.style.cursor = 'grab';
+      else if (wrap) wrap.style.cursor = '';
+    }, 150);
+  };
+})();
+
+// ══ VIEW MODE ══
+function setViewMode(mode) {
+  viewMode = mode;
+  document.getElementById('btnSingle').classList.toggle('active', mode === 'single');
+  document.getElementById('btnAll').classList.toggle('active', mode === 'all');
+  if (pdfDoc) renderCurrentView();
+}
+
+// ══ UI UPDATE ══
+function updateUI() {
+  const pg = currentPage, tot = totalPages || 1;
+  document.getElementById('topPageIndicator').textContent = `${pg} / ${tot}`;
+  document.getElementById('scrollPageLabel').textContent  = `Page ${pg} of ${tot}`;
+  document.getElementById('navPrev').disabled = pg <= 1;
+  document.getElementById('navNext').disabled = pg >= totalPages;
+  document.getElementById('pageJumpInput').value = pg;
+}
+
+// Re-render PDF on resize (handles mobile orientation changes)
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    if (pdfDoc) renderCurrentView();
+  }, 250);
+});
+
+// Re-render when entering/exiting fullscreen
+document.addEventListener('fullscreenchange', () => {
+  if (pdfDoc) {
+    // Small delay so the browser has time to update layout dimensions
+    setTimeout(() => renderCurrentView(), 120);
+  }
+});
+
+// ══ CONFIRM MODAL ══
+function showConfirm(title, msg, cb) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMsg').textContent   = msg;
+  confirmCallback = cb;
+  document.getElementById('confirmModal').classList.add('open');
+}
+function closeConfirm() {
+  document.getElementById('confirmModal').classList.remove('open');
+  confirmCallback = null;
+}
+
+// ══ MOBILE SIDEBAR ══
+function toggleMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const isOpen  = sidebar.classList.contains('mobile-open');
+  if (isOpen) {
+    sidebar.classList.remove('mobile-open');
+    overlay.classList.remove('open');
+  } else {
+    sidebar.classList.add('mobile-open');
+    overlay.classList.add('open');
+  }
+}
+function closeMobileSidebar() {
+  document.querySelector('.sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+}
+
+// ══ FULLSCREEN ══
+function toggleFullscreen() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+}
+
+// ══ LOADING ══
+function showLoading(txt) {
+  document.getElementById('loadingOverlay').classList.add('active');
+  document.getElementById('loadingTxt').textContent = txt;
+  setLoadingProgress(0, txt);
+}
+function hideLoading() {
+  setLoadingProgress(100, 'Done');
+  setTimeout(() => document.getElementById('loadingOverlay').classList.remove('active'), 300);
+}
+function setLoadingProgress(pct, txt) {
+  document.getElementById('loadingBar').style.width = pct + '%';
+  if (txt) document.getElementById('loadingTxt').textContent = txt;
+}
+
+// ══ TOAST ══
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ══ KEYBOARD ══
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextPage();
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   prevPage();
+  if (e.key === '+' || e.key === '=') zoom(0.25);
+  if (e.key === '-')                   zoom(-0.25);
+  if (e.key === 'Escape') {
+    closeConfirm();
+    closeChapterModal();
+    closePdfManager();
+  }
+});
+
+// ══ MODAL ENTER KEY ══
+document.getElementById('chModalName').addEventListener('keydown', e => { if (e.key === 'Enter') saveChapterModal(); });
+document.getElementById('chModalDesc').addEventListener('keydown', e => { if (e.key === 'Enter') saveChapterModal(); });
+
+document.getElementById('confirmOkBtn').addEventListener('click', () => {
+  const cb = confirmCallback;
+  closeConfirm(); // close modal first, then run callback
+  if (cb) cb();
+});
+
+// ══ CLICK OUTSIDE MODAL ══
+document.getElementById('chapterModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('chapterModal')) closeChapterModal();
+});
+document.getElementById('confirmModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('confirmModal')) closeConfirm();
+});
+
+// Load first chapter's PDF if available
+if (state.chapters.length && state.chapters[0].pdfKey && state.pdfs[state.chapters[0].pdfKey]) {
+  loadPdfFromDataUrl(state.pdfs[state.chapters[0].pdfKey].dataUrl);
+}
+
+// ══════════════════════════════════════════════════
+//  VIDEO BUTTON SYSTEM
+// ══════════════════════════════════════════════════
+
+// Storage for video buttons per chapter+page
+// state.videoButtons = { [chapterId]: [ { id, page, x, y, label, url, fileKey, driveEmbed } ] }
+if (!state.videoButtons) state.videoButtons = {};
+
+// ── CANVAS MODE SYSTEM ──────────────────────────
+// Modes: 'none' | 'addPoint' | 'addVideo'
+let canvasMode = 'none';
+let pendingPlacement = null;
+let pendingEditId     = null;
+let uploadedVideoDataUrl = null;
+let uploadedVideoFile    = null; // actual File object for Drive upload
+
+function setCanvasMode(mode) {
+  canvasMode = mode;
+  const vidBtn   = document.getElementById('addVidModeBtn');
+  const wrap     = document.getElementById('canvasWrap');
+
+  // Reset all
+  vidBtn.classList.remove('active-add');
+  vidBtn.textContent = '▶ Add Video';
+  wrap.style.cursor  = '';
+
+  if (mode === 'addVideo') {
+    if (!pdfDoc) { showToast('Load a PDF first'); canvasMode='none'; return; }
+    vidBtn.classList.add('active-add');
+    vidBtn.textContent = '✕ Cancel';
+    wrap.style.cursor  = 'crosshair';
+    showToast('Click on the PDF where you want the video button');
+  }
+}
+
+function toggleAddVideoMode() {
+  setCanvasMode(canvasMode === 'addVideo' ? 'none' : 'addVideo');
+}
+
+// ── UNIFIED CANVAS CLICK HANDLER ────────────────
+// Suppress browser right-click context menu on the PDF canvas area
+document.getElementById('canvasWrap').addEventListener('contextmenu', e => e.preventDefault());
+
+function handleCanvasClick(e, container, pageNum) {
+  if (canvasMode === 'addVideo') {
+    const rect = container.getBoundingClientRect();
+    const xPct = parseFloat(((e.clientX - rect.left) / rect.width  * 100).toFixed(2));
+    const yPct = parseFloat(((e.clientY - rect.top)  / rect.height * 100).toFixed(2));
+    pendingPlacement = { pageNum, xPct, yPct };
+    pendingEditId    = null;
+    uploadedVideoDataUrl = null;
+    document.getElementById('avLabel').value = '';
+    document.getElementById('avUrl').value   = '';
+    document.getElementById('avFileName').textContent = '';
+    document.getElementById('avProgress').style.display = 'none';
+    openAttachVidModal();
+    setCanvasMode('none'); // exit placement mode
+    return;
+  }
+  // Default: no mode active — do nothing (points are added from sidebar)
+}
+
+// ── ATTACH VIDEO MODAL ───────────────────────────
+function openAttachVidModal() {
+  document.getElementById('attachVidModal').classList.add('open');
+  setTimeout(() => document.getElementById('avLabel').focus(), 80);
+}
+function closeAttachVidModal() {
+  document.getElementById('attachVidModal').classList.remove('open');
+  pendingPlacement = null;
+  pendingEditId    = null;
+  uploadedVideoDataUrl = null;
+  uploadedVideoFile    = null;
+}
+
+// File upload inside attach modal — compress large videos before upload
+document.getElementById('avFileInput').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  uploadedVideoFile    = null;
+  uploadedVideoDataUrl = null;
+  const name = document.getElementById('avFileName');
+  const prog = document.getElementById('avProgress');
+  const fill = document.getElementById('avProgressFill');
+  document.getElementById('avUrl').value = '';
+  e.target.value = '';
+
+  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+
+  if (file.size >= 30 * 1024 * 1024) {
+    // Large file: compress it first
+    name.textContent = `\u2699 Compressing ${file.name} (${sizeMB} MB)...`;
+    name.style.color = 'var(--gold-light)';
+    prog.style.display = 'block';
+    fill.style.width = '0%';
+    fill.style.transition = 'width 0.3s';
+
+    try {
+      const compressed = await compressVideo(file, pct => {
+        fill.style.width = pct + '%';
+        name.textContent = `\u2699 Compressing... ${pct}%`;
+      });
+      const compMB = (compressed.size / 1024 / 1024).toFixed(1);
+      const ext = (compressed.type || '').includes('webm') ? '.webm' : '.mp4';
+      uploadedVideoFile = new File([compressed], file.name.replace(/\.[^.]+$/, ext), { type: compressed.type || 'video/webm' });
+      fill.style.width = '100%';
+      const saved = compressed.size < file.size
+        ? ` \u2192 compressed to ${compMB} MB`
+        : ` (${sizeMB} MB, already optimal)`;
+      name.textContent = `\u2714 ${file.name}${saved} \u2014 ready`;
+      name.style.color = 'var(--gold)';
+    } catch(err) {
+      uploadedVideoFile = file;
+      fill.style.width = '100%';
+      name.textContent = `\u2714 ${file.name} (${sizeMB} MB, ready to upload)`;
+      name.style.color = 'var(--ash)';
+    }
+  } else {
+    // Small file: skip compression
+    uploadedVideoFile = file;
+    prog.style.display = 'block';
+    fill.style.width = '100%';
+    name.textContent = `\u2714 ${file.name} (${sizeMB} MB, ready to upload)`;
+    name.style.color = 'var(--gold)';
+  }
+});
+
+// ── DRIVE TRANSCODING WARM-UP ────────────────────
+// Pings Drive endpoints to trigger transcoding for a single file.
+function warmUpDriveTranscoding(fileId) {
+  if (!fileId) return;
+  fetch(`https://drive.google.com/file/d/${fileId}/preview`, { mode: 'no-cors' }).catch(() => {});
+  if (DRIVE_API_KEY) {
+    fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=videoMediaMetadata&key=${DRIVE_API_KEY}`).catch(() => {});
+  }
+}
+
+// ── WARM UP ALL EXISTING VIDEOS ─────────────────
+// Admin-only: fetches every video record from Firestore and pings Drive
+// to trigger transcoding for any videos that haven't been processed yet.
+async function warmUpAllVideos() {
+  if (!window.IS_ADMIN) return;
+  const btn = document.getElementById('warmUpAllBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Working…'; }
+
+  let records = [];
+  try {
+    records = await window.getAllDriveVideoRecords?.() || [];
+  } catch(e) {
+    showToast('⚠ Could not load video list');
+    if (btn) { btn.disabled = false; btn.textContent = '⚙ Warm Up All Videos'; }
+    return;
+  }
+
+  if (records.length === 0) {
+    showToast('No videos found in Drive records');
+    if (btn) { btn.disabled = false; btn.textContent = '⚙ Warm Up All Videos'; }
+    return;
+  }
+
+  let done = 0;
+  for (const rec of records) {
+    warmUpDriveTranscoding(rec.fileId);
+    done++;
+    if (btn) btn.textContent = `⏳ ${done}/${records.length}…`;
+    // Small delay between pings to avoid rate-limiting
+    await new Promise(r => setTimeout(r, 400));
+  }
+
+  showToast(`✔ Pinged ${records.length} video${records.length !== 1 ? 's' : ''} — Drive is now transcoding them in the background`);
+  if (btn) {
+    btn.textContent = `✔ Done (${records.length})`;
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '⚙ Warm Up All Videos';
+    }, 4000);
+  }
+}
+
+async function confirmAttachVideo() {
+  const label = document.getElementById('avLabel').value.trim() || 'Video';
+  const url   = document.getElementById('avUrl').value.trim();
+
+  if (!uploadedVideoFile && !uploadedVideoDataUrl && !url) {
+    showToast('Paste a video URL or upload a video file');
+    return;
+  }
+  if (!activeChapterId) { showToast('Select a chapter first'); return; }
+
+  if (!state.videoButtons[activeChapterId]) state.videoButtons[activeChapterId] = [];
+
+  if (pendingEditId) {
+    // Editing existing
+    const arr = state.videoButtons[activeChapterId];
+    const btn = arr.find(b => b.id === pendingEditId);
+    if (btn) {
+      btn.label = label;
+      btn.url   = url || null;
+      if (uploadedVideoFile) {
+        showLoading('Uploading video to Drive…');
+        try {
+          const fk = btn.fileKey || ('vid_' + btn.id);
+          const { fileId, embedUrl, streamUrl } = await uploadToDrive(uploadedVideoFile, label + '_' + Date.now() + '.mp4');
+          await window.saveDriveFileRecord(fk, { fileId, embedUrl, streamUrl, type: 'video', name: label, mimeType: uploadedVideoFile.type || '' });
+          btn.fileKey    = fk;
+          btn.driveEmbed = embedUrl;
+          btn.streamUrl  = streamUrl;
+          warmUpDriveTranscoding(fileId);
+        } catch(err) { hideLoading(); showToast('⚠ Video upload failed'); return; }
+        hideLoading();
+      }
+    }
+    showToast('Video button updated');
+  } else {
+    // New button
+    const newId  = genId();
+    const newBtn = {
+      id:         newId,
+      page:       pendingPlacement.pageNum,
+      xPct:       pendingPlacement.xPct,
+      yPct:       pendingPlacement.yPct,
+      label,
+      url:        url || null,
+      fileKey:    null,
+      driveEmbed: null
+    };
+    if (uploadedVideoFile) {
+      showLoading('Uploading video to Drive…');
+      try {
+        const fk = 'vid_' + newId;
+        const { fileId, embedUrl, streamUrl } = await uploadToDrive(uploadedVideoFile, label + '_' + Date.now() + '.mp4');
+        await window.saveDriveFileRecord(fk, { fileId, embedUrl, streamUrl, type: 'video', name: label, mimeType: uploadedVideoFile.type || '' });
+        newBtn.fileKey    = fk;
+        newBtn.driveEmbed = embedUrl;
+        newBtn.streamUrl  = streamUrl;
+        warmUpDriveTranscoding(fileId);
+      } catch(err) { hideLoading(); showToast('⚠ Video upload failed'); return; }
+      hideLoading();
+    }
+    state.videoButtons[activeChapterId].push(newBtn);
+    showToast('▶ Video button placed!');
+  }
+
+  await saveState();
+  closeAttachVidModal();
+  renderCurrentView();
+}
+
+// ── RENDER VIDEO BUTTONS onto a page container ───
+function renderVideoButtonsOnPage(container, pageNum) {
+  if (!activeChapterId) return;
+  const buttons = (state.videoButtons[activeChapterId] || []).filter(b => b.page === pageNum);
+  buttons.forEach(vb => {
+    createVidBtnEl(container, vb);
+  });
+}
+
+function createVidBtnEl(container, vb) {
+  const el = document.createElement('button');
+  el.className = 'vid-btn';
+  el.title = vb.label;
+  el.innerHTML = `▶<span class="vid-btn-label">${escHtml(vb.label)}</span>`;
+  el.style.left = vb.xPct + '%';
+  el.style.top  = vb.yPct + '%';
+  el.style.transform = 'translate(-50%, -50%)';
+
+  // Delete button — admin only
+  let delEl = null;
+  if (window.IS_ADMIN) {
+    delEl = document.createElement('button');
+    delEl.className = 'vid-btn-del';
+    delEl.textContent = '✕';
+    delEl.title = 'Remove video button';
+    delEl.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!confirm('Remove this video button?')) return;
+      const arr = state.videoButtons[activeChapterId];
+      const idx = arr.findIndex(b => b.id === vb.id);
+      if (idx !== -1) {
+        const removed = arr[idx];
+        if (removed.fileKey) {
+          // Delete from Drive
+          const record = await window.loadDriveFileRecord?.(removed.fileKey).catch(()=>null);
+          if (record?.fileId) deleteFromDrive(record.fileId);
+          window.deleteDriveFileRecord?.(removed.fileKey).catch(()=>{});
+          idbDelete('files', removed.fileKey).catch(()=>{});
+        }
+        arr.splice(idx, 1);
+      }
+      saveState();
+      el.remove();
+      showToast('Video button removed');
+    });
+    el.appendChild(delEl);
+  }
+
+  // Click → play video
+  el.addEventListener('click', e => {
+    if (delEl && e.target === delEl) return;
+    playVideo(vb);
+  });
+
+  // Drag to reposition
+  makeDraggable(el, container, vb);
+
+  container.appendChild(el);
+}
+
+// ── DRAGGABLE ────────────────────────────────────
+function makeDraggable(el, container, vb) {
+  let dragging = false, startX, startY, startLeft, startTop;
+
+  el.addEventListener('mousedown', e => {
+    if (delEl && e.target === delEl) return;
+    dragging = true;
+    el.classList.add('dragging');
+    const rect = container.getBoundingClientRect();
+    startX    = e.clientX;
+    startY    = e.clientY;
+    startLeft = (vb.xPct / 100) * rect.width;
+    startTop  = (vb.yPct / 100) * rect.height;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const rect = container.getBoundingClientRect();
+    const dx   = e.clientX - startX;
+    const dy   = e.clientY - startY;
+    const newLeft = Math.max(0, Math.min(rect.width,  startLeft + dx));
+    const newTop  = Math.max(0, Math.min(rect.height, startTop  + dy));
+    const newXPct = (newLeft / rect.width  * 100);
+    const newYPct = (newTop  / rect.height * 100);
+    el.style.left = newXPct + '%';
+    el.style.top  = newYPct + '%';
+    vb.xPct = parseFloat(newXPct.toFixed(2));
+    vb.yPct = parseFloat(newYPct.toFixed(2));
+  });
+
+  document.addEventListener('mouseup', e => {
+    if (!dragging) return;
+    dragging = false;
+    el.classList.remove('dragging');
+    saveState(); // persist new position
+  });
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── VIDEO PLAYER ─────────────────────────────────
+
+// Fetch a Drive file as a blob URL using token (admin) or API key fallback
+async function _driveVideoBlob(fileId) {
+  // Try with OAuth token first (most reliable, works for admin)
+  const token = _driveAccessToken;
+  if (token) {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      if (res.ok) {
+        const blob = await res.blob();
+        return URL.createObjectURL(blob);
+      }
+    } catch(e) { /* fall through */ }
+  }
+  // Fallback: API key (works for public files, but Drive may redirect for large files)
+  if (DRIVE_API_KEY) {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${DRIVE_API_KEY}`
+      );
+      if (res.ok) {
+        const blob = await res.blob();
+        return URL.createObjectURL(blob);
+      }
+    } catch(e) { /* fall through */ }
+  }
+  return null;
+}
+
+// Stream a Drive video.
+// Strategy:
+//   1. iOS Safari → Drive embed iframe (MSE broken on iOS)
+//   2. Desktop/Android, MP4-compatible file → MediaSource streaming (plays while downloading)
+//   3. Any format failure → Drive embed iframe (handles all formats via Drive transcoding)
+//   4. Last resort → full blob download
+async function streamDriveVideo(fileId, bodyEl, token, mimeType) {
+  const apiUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+  const headers = token ? { Authorization: 'Bearer ' + token } : {};
+  if (DRIVE_API_KEY && !token) headers['x-goog-api-key'] = DRIVE_API_KEY;
+
+  // Helper: render Drive embed iframe (works for ALL video formats — Drive transcodes server-side)
+  function useDriveEmbed() {
+    const embedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+    bodyEl.innerHTML = `<iframe src="${embedUrl}" allow="autoplay; fullscreen" allowfullscreen style="width:100%;height:100%;border:none;"></iframe>`;
+  }
+
+  // ── iOS detection (iPhone, iPad, iPod, iPad Pro) ──
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  if (isIOS) {
+    // Drive /preview iframe streams natively in Safari — no blobs, no MSE needed.
+    useDriveEmbed();
+    return;
+  }
+
+  // ── Detect if file is MP4/H.264 compatible for MediaSource ──
+  // If we stored the MIME type and it's not MP4-compatible, skip straight to embed iframe.
+  const isMP4Compatible = !mimeType ||
+    mimeType === 'video/mp4' ||
+    mimeType === 'video/webm' ||
+    mimeType.startsWith('video/mp4') ||
+    mimeType.startsWith('video/webm');
+
+  if (!isMP4Compatible) {
+    // Non-MP4 file (e.g. .mov, .avi, .mkv) — Drive embed handles transcoding
+    useDriveEmbed();
+    return;
+  }
+
+  // ── Desktop / Android: Try MediaSource streaming (plays while downloading) ──
+  const mp4Mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+  const webmMime = 'video/webm; codecs="vp9, opus"';
+  const preferredMime = (mimeType && mimeType.includes('webm') && MediaSource.isTypeSupported(webmMime))
+    ? webmMime : mp4Mime;
+
+  if (window.MediaSource && MediaSource.isTypeSupported(preferredMime)) {
+    try {
+      // Range request to get total file size from Content-Range header
+      const headRes = await fetch(apiUrl, { headers: { ...headers, Range: 'bytes=0-0' } });
+      const contentRange = headRes.headers.get('Content-Range');
+      const totalSize = contentRange ? parseInt(contentRange.split('/')[1]) : null;
+
+      if (totalSize && MediaSource.isTypeSupported(preferredMime)) {
+        const ms  = new MediaSource();
+        const url = URL.createObjectURL(ms);
+        const vid = document.createElement('video');
+        vid.controls   = true;
+        vid.autoplay   = true;
+        vid.oncontextmenu = () => false;
+        Object.assign(vid.style, { width:'100%', height:'100%', background:'#000' });
+        vid.setAttribute('controlsList','nodownload nofullscreen');
+        vid.setAttribute('disablePictureInPicture','');
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(vid);
+        vid.src = url;
+
+        // If video errors (codec mismatch, non-fragmented MP4, etc.) → fall back to Drive embed
+        vid.addEventListener('error', () => {
+          URL.revokeObjectURL(url);
+          try { ms.endOfStream(); } catch(e) {}
+          useDriveEmbed();
+        }, { once: true });
+
+        ms.addEventListener('sourceopen', async () => {
+          let sb;
+          try { sb = ms.addSourceBuffer(preferredMime); } catch(e) {
+            try { ms.endOfStream(); } catch(ee) {}
+            useDriveEmbed();
+            return;
+          }
+
+          const CHUNK = 3 * 1024 * 1024; // 3 MB chunks
+          let offset = 0;
+          let failed = false;
+
+          async function fetchChunk() {
+            if (failed) return;
+            if (offset >= totalSize) { try { ms.endOfStream(); } catch(e){} return; }
+            const end = Math.min(offset + CHUNK - 1, totalSize - 1);
+            try {
+              const res = await fetch(apiUrl, {
+                headers: { ...headers, Range: `bytes=${offset}-${end}` }
+              });
+              if (!res.ok) {
+                failed = true;
+                try { ms.endOfStream('network'); } catch(e){}
+                useDriveEmbed();
+                return;
+              }
+              const buf = await res.arrayBuffer();
+              offset = end + 1;
+              sb.addEventListener('updateend', fetchChunk, { once: true });
+              try { sb.appendBuffer(buf); } catch(e) {
+                failed = true;
+                useDriveEmbed();
+              }
+            } catch(e) {
+              failed = true;
+              try { ms.endOfStream('network'); } catch(ee){}
+              useDriveEmbed();
+            }
+          }
+
+          await fetchChunk();
+        }, { once: true });
+
+        return; // MediaSource path handled
+      }
+    } catch(e) { /* fall through */ }
+  }
+
+  // ── Fallback: Drive embed iframe (universal, handles all formats) ──
+  useDriveEmbed();
+}
+
+async function playVideo(vb) {
+  document.getElementById('vidPlayerTitle').textContent = '\u25B6 ' + (vb.label || 'Video');
+  const body = document.getElementById('vidPlayerBody');
+  body.innerHTML = `<p style="color:var(--ash);padding:40px 20px;text-align:center;font-size:10px;letter-spacing:3px;text-transform:uppercase;">Loading video\u2026</p>`;
+  document.getElementById('vidPlayerModal').classList.add('open');
+
+  // Revoke any previous blob URL to free memory
+  if (body._blobUrl) { URL.revokeObjectURL(body._blobUrl); body._blobUrl = null; }
+
+  if (vb.fileKey) {
+    // Load record from Firestore to get fileId
+    const record = await window.loadDriveFileRecord?.(vb.fileKey).catch(()=>null);
+    const fileId = record?.fileId || null;
+
+    if (fileId) {
+      // Stream directly from Drive API — works immediately, no transcoding wait
+      // Pass mimeType so the player can choose the right strategy (embed for non-MP4 formats)
+      await streamDriveVideo(fileId, body, _driveAccessToken, record?.mimeType || null);
+      return;
+    }
+
+    // Legacy IDB fallback
+    const dataUrl = await idbGet('files', vb.fileKey).catch(()=>null);
+    if (dataUrl) {
+      body.innerHTML = `<video controls autoplay controlsList="nodownload nofullscreen" disablePictureInPicture oncontextmenu="return false" style="width:100%;height:100%;background:#000;"><source src="${dataUrl}">Your browser does not support video.</video>`;
+      return;
+    }
+
+    body.innerHTML = `<p style="color:var(--ash);padding:40px 20px;text-align:center;">Video file not found.</p>`;
+
+  } else if (vb.url) {
+    const src = toEmbedUrl(vb.url);
+    if (src.embed) {
+      body.innerHTML = `<iframe src="${src.url}" allow="autoplay; fullscreen" allowfullscreen style="width:100%;height:100%;border:none;"></iframe>`;
+    } else {
+      body.innerHTML = `<video controls autoplay controlsList="nodownload nofullscreen" disablePictureInPicture oncontextmenu="return false" style="width:100%;height:100%;background:#000;"><source src="${src.url}">Your browser does not support video.</video>`;
+    }
+  } else {
+    body.innerHTML = `<p style="color:var(--ash);padding:40px 20px;text-align:center;">No video source configured.</p>`;
+  }
+}
+
+function closeVidPlayer() {
+  const body = document.getElementById('vidPlayerBody');
+  // Revoke blob URL if any to free memory
+  if (body._blobUrl) { URL.revokeObjectURL(body._blobUrl); body._blobUrl = null; }
+  document.getElementById('vidPlayerModal').classList.remove('open');
+  body.innerHTML = ''; // stop video
+}
+
+function toEmbedUrl(url) {
+  // YouTube
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?/]+)/);
+  if (yt) return { embed: true, url: `https://www.youtube.com/embed/${yt[1]}?autoplay=1` };
+  // Vimeo
+  const vm = url.match(/vimeo\.com\/(\d+)/);
+  if (vm) return { embed: true, url: `https://player.vimeo.com/video/${vm[1]}?autoplay=1` };
+  // Direct MP4/video url
+  return { embed: false, url };
+}
+
+// ── PATCH renderPage to attach video buttons ─────
+// We override the original renderPage to also call renderVideoButtonsOnPage
+const _origRenderPage = renderPage;
+window.renderPage = async function(pageNum, container) {
+  await _origRenderPage(pageNum, container);
+  const wrapper = document.getElementById(`pageContainer_${pageNum}`);
+  if (wrapper) renderVideoButtonsOnPage(wrapper, pageNum);
+};
+
+// Close video player on overlay click
+document.getElementById('vidPlayerModal').addEventListener('click', function(e) {
+  if (e.target === this) closeVidPlayer();
+});
+
+// Escape closes video player
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeVidPlayer();
+});
+</script>
+
+</div><!-- end #appShell -->
+</body>
+</html>

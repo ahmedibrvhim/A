@@ -1,0 +1,34 @@
+// ══════════════════════════════════════════════════════
+//  BRAND A — Firestore Security Rules
+//  Go to: Firebase Console → Firestore → Rules tab
+//  Delete everything there and paste this, then Publish
+// ══════════════════════════════════════════════════════
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── USERS collection ──
+    // Each user can only read/write their own profile
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── ORDERS collection ──
+    // Anyone logged in can CREATE an order (for checkout)
+    // Only the admin email can READ ALL orders (for dashboard)
+    // Users can read their own orders only
+    match /orders/{orderId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null && (
+        request.auth.token.email == 'amedsaad036@gmail.com' ||
+        resource.data.userId == request.auth.uid
+      );
+      allow update: if request.auth != null &&
+        request.auth.token.email == 'amedsaad036@gmail.com';
+      allow delete: if request.auth != null &&
+        request.auth.token.email == 'amedsaad036@gmail.com';
+    }
+
+  }
+}

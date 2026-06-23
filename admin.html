@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A — Admin Dashboard</title>
+<link rel="stylesheet" href="style.css">
+<style>
+/* ══ ADMIN SPECIFIC ══ */
+.admin-wrap {
+  padding-top: calc(var(--nav-h) + 20px);
+  min-height: 100vh;
+  background: var(--black);
+}
+
+/* ── LOGIN GATE ── */
+.admin-gate {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 0%, #1a0000 0%, #000 60%);
+  padding-top: var(--nav-h);
+}
+.gate-box {
+  background: var(--dark); border: 1px solid var(--blood);
+  padding: 40px 36px; width: 380px; max-width: 95vw;
+  box-shadow: 0 0 60px rgba(139,0,0,.25);
+  animation: fadeUp .4s ease;
+}
+@keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:none} }
+.gate-title {
+  font-family:'Cinzel Decorative',cursive;
+  font-size: 18px; color: var(--white);
+  letter-spacing: 4px; margin-bottom: 6px;
+}
+.gate-sub { font-size: 8px; letter-spacing: 3px; color: var(--blood); margin-bottom: 28px; text-transform: uppercase; }
+.gate-err {
+  background: rgba(139,0,0,.12); border: 1px solid var(--blood);
+  color: var(--crimson); padding: 10px 14px;
+  font-size: 10px; letter-spacing: 1px; margin-bottom: 16px; display: none;
+}
+.gate-err.show { display: block; }
+
+/* ── STATS BAR ── */
+.stats-bar {
+  display: grid; grid-template-columns: repeat(5,1fr);
+  gap: 2px; margin: 0 0 2px;
+}
+.stat-card {
+  background: var(--panel); border: 1px solid var(--border);
+  padding: 22px 24px;
+}
+.stat-label { font-size: 8px; letter-spacing: 3px; color: var(--ash); text-transform: uppercase; margin-bottom: 8px; }
+.stat-value { font-size: 28px; font-weight: 700; color: var(--white); font-family:'Cinzel',serif; }
+.stat-value.red   { color: var(--crimson); }
+.stat-value.amber { color: #f59e0b; }
+.stat-value.green { color: #22c55e; }
+.stat-value.blue  { color: #60a5fa; }
+
+/* ── FILTERS ── */
+.filter-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 24px; background: var(--panel);
+  border: 1px solid var(--border); margin-bottom: 2px;
+  flex-wrap: wrap;
+}
+.filter-label { font-size: 9px; letter-spacing: 2px; color: var(--ash); text-transform: uppercase; }
+.filter-btn {
+  background: transparent; border: 1px solid var(--smoke);
+  color: var(--ash); padding: 6px 16px;
+  font-family: 'Cinzel',serif; font-size: 9px;
+  letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all .2s;
+}
+.filter-btn:hover { border-color: var(--blood); color: var(--text); }
+.filter-btn.active { background: var(--blood); border-color: var(--blood); color: var(--white); }
+.search-inp {
+  background: var(--dark); border: 1px solid var(--smoke);
+  color: var(--white); padding: 7px 14px;
+  font-family: 'Cinzel',serif; font-size: 11px;
+  outline: none; margin-left: auto; width: 220px;
+  transition: border-color .3s;
+}
+.search-inp:focus { border-color: var(--blood); }
+.search-inp::placeholder { color: var(--smoke); }
+
+/* ── ORDERS TABLE ── */
+.orders-container { padding: 0 0 60px; }
+.orders-table { width: 100%; border-collapse: collapse; }
+.orders-table th {
+  background: var(--panel); border-bottom: 1px solid var(--blood);
+  padding: 12px 16px; text-align: left;
+  font-size: 8px; letter-spacing: 3px; color: var(--blood);
+  text-transform: uppercase; font-weight: 600; white-space: nowrap;
+}
+.orders-table td {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--text); vertical-align: top;
+}
+.orders-table tr { background: var(--dark); transition: background .2s; }
+.orders-table tr:hover { background: var(--panel); }
+
+.order-id { font-family: monospace; font-size: 10px; color: var(--ash); letter-spacing: 1px; }
+.customer-name { font-weight: 600; color: var(--white); letter-spacing: 1px; }
+.customer-phone { font-size: 10px; color: var(--ash); margin-top: 3px; letter-spacing: 1px; }
+.customer-email { font-size: 9px; color: var(--smoke); margin-top: 2px; }
+
+.item-row { font-size: 10px; color: var(--text); letter-spacing: .5px; margin-bottom: 3px; }
+.item-row:last-child { margin-bottom: 0; }
+.item-size { color: var(--ash); }
+
+.order-total { font-size: 16px; font-weight: 700; color: var(--crimson); white-space: nowrap; }
+.order-date  { font-size: 9px; color: var(--ash); letter-spacing: 1px; white-space: nowrap; }
+
+/* ── STATUS BADGE ── */
+.status-badge {
+  display: inline-block; padding: 4px 12px;
+  font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+  font-weight: 600; border-radius: 0; white-space: nowrap;
+}
+.status-pending   { background: rgba(245,158,11,.15); color: #f59e0b; border: 1px solid #f59e0b; }
+.status-confirmed { background: rgba(96,165,250,.15); color: #60a5fa; border: 1px solid #60a5fa; }
+.status-shipped   { background: rgba(167,139,250,.15); color: #a78bfa; border: 1px solid #a78bfa; }
+.status-delivered { background: rgba(34,197,94,.15);  color: #22c55e; border: 1px solid #22c55e; }
+.status-cancelled { background: rgba(139,0,0,.2);     color: var(--crimson); border: 1px solid var(--blood); }
+.status-blocked   { background: rgba(80,0,80,.25);    color: #c084fc;        border: 1px solid #7c3aed; }
+
+/* ── BLOCKED USERS PANEL ── */
+.blocked-panel {
+  margin: 0 24px 60px;
+  border: 1px solid #7c3aed;
+  background: var(--dark);
+}
+.blocked-panel-head {
+  background: rgba(80,0,80,.18); border-bottom: 1px solid #7c3aed;
+  padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+}
+.blocked-panel-head h3 {
+  font-family:'Cinzel',serif; font-size: 11px; letter-spacing: 3px;
+  color: #c084fc; text-transform: uppercase;
+}
+.block-form {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.block-inp {
+  background: var(--dark); border: 1px solid #7c3aed;
+  color: var(--white); padding: 7px 14px;
+  font-family:'Cinzel',serif; font-size: 10px;
+  outline: none; width: 240px; letter-spacing: 1px;
+  transition: border-color .3s;
+}
+.block-inp:focus { border-color: #c084fc; }
+.block-inp::placeholder { color: var(--smoke); }
+.btn-block {
+  background: rgba(80,0,80,.35); border: 1px solid #7c3aed;
+  color: #c084fc; padding: 7px 18px;
+  font-family:'Cinzel',serif; font-size: 9px;
+  letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all .25s; white-space: nowrap;
+}
+.btn-block:hover { background: rgba(124,58,237,.4); box-shadow: 0 0 12px rgba(124,58,237,.4); }
+.blocked-list { padding: 0; }
+.blocked-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px; border-bottom: 1px solid var(--border);
+  font-size: 11px; gap: 12px; flex-wrap: wrap;
+}
+.blocked-row:last-child { border-bottom: none; }
+.blocked-email { color: var(--white); letter-spacing: 1px; font-weight: 500; word-break: break-all; }
+.blocked-meta { font-size: 9px; color: var(--ash); letter-spacing: 1px; margin-top: 3px; }
+.btn-unblock {
+  background: transparent; border: 1px solid var(--smoke);
+  color: var(--ash); padding: 5px 14px;
+  font-family:'Cinzel',serif; font-size: 8px;
+  letter-spacing: 1px; cursor: pointer; transition: all .25s; white-space: nowrap;
+}
+.btn-unblock:hover { border-color: #22c55e; color: #22c55e; }
+.blocked-empty { padding: 32px; text-align: center; font-size: 10px; letter-spacing: 3px; color: var(--smoke); text-transform: uppercase; }
+.stat-value.purple { color: #c084fc; }
+
+/* ── BLOCK SEARCH DROPDOWN ── */
+.block-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 500;
+  background: var(--dark); border: 1px solid #7c3aed; border-top: none;
+  max-height: 220px; overflow-y: auto; display: none;
+}
+.block-dropdown.open { display: block; }
+.block-opt {
+  padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+  transition: background .15s;
+}
+.block-opt:last-child { border-bottom: none; }
+.block-opt:hover { background: rgba(124,58,237,.15); }
+.block-opt-name { font-size: 11px; color: var(--white); font-weight: 600; letter-spacing: 1px; }
+.block-opt-meta { font-size: 9px; color: var(--ash); letter-spacing: 1px; margin-top: 2px; }
+.block-opt-meta span { color: var(--smoke); margin: 0 4px; }
+
+/* ── STATUS SELECT ── */
+.status-select {
+  background: var(--dark); border: 1px solid var(--smoke);
+  color: var(--white); padding: 6px 10px;
+  font-family: 'Cinzel',serif; font-size: 9px;
+  letter-spacing: 1px; cursor: pointer; outline: none;
+  transition: border-color .2s; width: 100%;
+}
+.status-select:focus { border-color: var(--blood); }
+.status-select option { background: var(--dark); }
+
+/* ── ACTION BUTTONS ── */
+.btn-update {
+  background: var(--blood); border: none; color: var(--white);
+  padding: 7px 14px; font-family: 'Cinzel',serif;
+  font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all .25s; width: 100%; margin-top: 6px;
+}
+.btn-update:hover { background: var(--crimson); box-shadow: 0 0 12px rgba(220,20,60,.4); }
+.btn-update:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-delete {
+  background: transparent; border: 1px solid var(--smoke);
+  color: var(--ash); padding: 5px 10px;
+  font-family: 'Cinzel',serif; font-size: 8px;
+  letter-spacing: 1px; cursor: pointer; transition: all .25s;
+  width: 100%; margin-top: 4px;
+}
+.btn-delete:hover { border-color: var(--crimson); color: var(--crimson); }
+
+/* ── NOTES ── */
+.order-notes {
+  font-size: 10px; color: var(--ash); letter-spacing: .5px;
+  font-style: italic; max-width: 140px; word-break: break-word;
+}
+
+/* ── EMPTY / LOADING ── */
+.table-msg {
+  text-align: center; padding: 80px 20px;
+  font-size: 11px; letter-spacing: 3px; color: var(--ash);
+  text-transform: uppercase;
+}
+.spinner-wrap {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; padding: 80px;
+}
+.big-spinner {
+  width: 28px; height: 28px;
+  border: 3px solid rgba(139,0,0,.3);
+  border-top-color: var(--blood); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to{ transform: rotate(360deg); } }
+
+/* ── TOAST ── */
+.admin-toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--dark); border: 1px solid var(--blood);
+  border-left: 4px solid var(--crimson);
+  padding: 12px 20px; z-index: 9999;
+  font-size: 11px; color: var(--white); letter-spacing: 1px;
+  transform: translateX(260px); opacity: 0;
+  transition: all .3s; box-shadow: 0 0 24px rgba(139,0,0,.25);
+  min-width: 240px;
+}
+.admin-toast.show { transform: translateX(0); opacity: 1; }
+.admin-toast.green { border-left-color: #22c55e; }
+
+/* ── ORDER DETAIL MODAL ── */
+.modal-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.88); z-index: 3000;
+  backdrop-filter: blur(4px);
+  align-items: center; justify-content: center;
+}
+.modal-bg.open { display: flex; }
+.modal-box {
+  background: var(--dark); border: 1px solid var(--blood);
+  width: 500px; max-width: 95vw; max-height: 85vh;
+  overflow-y: auto; box-shadow: 0 0 60px rgba(139,0,0,.3);
+  animation: fadeUp .3s ease;
+}
+.modal-head {
+  background: var(--panel); border-bottom: 1px solid var(--blood);
+  padding: 20px 24px; display: flex; justify-content: space-between; align-items: center;
+  position: sticky; top: 0;
+}
+.modal-head h3 { font-family:'Cinzel Decorative',cursive; font-size: 14px; color: var(--white); letter-spacing: 3px; }
+.modal-body { padding: 24px; }
+.detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+.detail-row:last-child { border: none; }
+.detail-key { color: var(--ash); letter-spacing: 1px; }
+.detail-val { color: var(--white); font-weight: 500; text-align: right; }
+.detail-items-title { font-size: 9px; letter-spacing: 3px; color: var(--blood); text-transform: uppercase; margin: 16px 0 8px; }
+.detail-item { background: var(--panel); border: 1px solid var(--border); padding: 10px 14px; margin-bottom: 6px; font-size: 11px; }
+.detail-item .name { color: var(--white); font-weight: 600; letter-spacing: 1px; margin-bottom: 4px; }
+.detail-item .meta { color: var(--ash); font-size: 10px; }
+
+/* ── PAYMENT METHOD BADGE ── */
+.pay-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; font-size: 8px; letter-spacing: 1.5px;
+  text-transform: uppercase; font-weight: 600; white-space: nowrap;
+  border-radius: 0;
+}
+.pay-vf {
+  background: rgba(220,20,60,.12); color: var(--crimson);
+  border: 1px solid rgba(220,20,60,.35);
+}
+.pay-bn {
+  background: rgba(240,185,11,.12); color: #F0B90B;
+  border: 1px solid rgba(240,185,11,.35);
+}
+
+/* ── CANCEL BUTTON ── */
+.btn-cancel {
+  background: transparent; border: 1px solid var(--blood);
+  color: var(--crimson); padding: 5px 10px;
+  font-family: 'Cinzel',serif; font-size: 8px;
+  letter-spacing: 1px; cursor: pointer; transition: all .25s;
+  width: 100%; margin-top: 4px;
+}
+.btn-cancel:hover { background: rgba(139,0,0,.2); box-shadow: 0 0 8px rgba(220,20,60,.3); }
+
+@media(max-width:900px){
+  .stats-bar { grid-template-columns: repeat(3,1fr); }
+  .orders-table { display: block; overflow-x: auto; }
+  .search-inp { width: 140px; }
+}
+@media(max-width:600px){
+  .stats-bar { grid-template-columns: 1fr; }
+  .filter-bar { gap: 6px; }
+  .filter-btn { padding: 5px 10px; font-size: 8px; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="index.html">
+    <div>
+      <div class="logo-mark">A</div>
+      <div class="logo-tag">☠ Admin Panel ☠</div>
+    </div>
+  </a>
+  <ul class="nav-links">
+    <li><a href="index.html">← Store</a></li>
+  </ul>
+  <div class="nav-right" id="navRight">
+    <span style="font-size:9px;letter-spacing:2px;color:var(--ash)">Loading...</span>
+  </div>
+</nav>
+
+<!-- ADMIN GATE (shown before auth check completes) -->
+<div id="loadingGate" style="display:flex;align-items:center;justify-content:center;min-height:100vh">
+  <div class="spinner-wrap"><div class="big-spinner"></div><span style="font-size:10px;letter-spacing:3px;color:var(--ash)">VERIFYING ACCESS...</span></div>
+</div>
+
+<!-- MAIN DASHBOARD (shown after auth) -->
+<div class="admin-wrap" id="adminDash" style="display:none">
+
+  <div class="sec-title" style="padding:40px 24px 20px">
+    <h2>Orders Dashboard</h2>
+    <p>☠ Manage All Customer Orders ☠</p>
+    <div class="sec-line"></div>
+  </div>
+
+  <!-- STATS -->
+  <div style="padding:0 24px">
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value" id="statTotal">—</div></div>
+      <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value amber" id="statPending">—</div></div>
+      <div class="stat-card"><div class="stat-label">Confirmed</div><div class="stat-value green" id="statConfirmed">—</div></div>
+      <div class="stat-card"><div class="stat-label">Cancelled</div><div class="stat-value red" id="statCancelled">—</div></div>
+      <div class="stat-card" style="border-color:#7c3aed"><div class="stat-label" style="color:#c084fc">Blocked Users</div><div class="stat-value purple" id="statBlocked">—</div></div>
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div style="padding:0 24px;margin-top:20px">
+    <div class="filter-bar">
+      <span class="filter-label">Filter:</span>
+      <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+      <button class="filter-btn" onclick="setFilter('pending',this)">Pending</button>
+      <button class="filter-btn" onclick="setFilter('confirmed',this)">Confirmed</button>
+      <button class="filter-btn" onclick="setFilter('cancelled',this)">Cancelled</button>
+      <input type="text" class="search-inp" id="searchInp" placeholder="Search name, phone, email..." oninput="renderOrders()">
+    </div>
+  </div>
+
+  <!-- ORDERS TABLE -->
+  <div style="padding:0 24px">
+    <div class="orders-container">
+      <div id="ordersWrap">
+        <div class="spinner-wrap"><div class="big-spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BLOCKED USERS -->
+  <div style="padding:0 24px;margin-top:32px">
+    <div class="sec-title" style="padding:0 0 16px">
+      <h2 style="font-size:14px;letter-spacing:4px">☠ Blocked Users</h2>
+      <p style="color:#7c3aed">Users blocked from placing orders</p>
+      <div class="sec-line" style="background:linear-gradient(90deg,#7c3aed,transparent)"></div>
+    </div>
+  </div>
+
+  <div class="blocked-panel">
+    <div class="blocked-panel-head">
+      <h3>⛔ Block a Customer</h3>
+      <div class="block-form">
+        <div style="position:relative">
+          <input type="text" class="block-inp" id="blockSearchInp" placeholder="Search by name, email or phone..." oninput="searchCustomers()" autocomplete="off" />
+          <div class="block-dropdown" id="blockDropdown"></div>
+        </div>
+        <input type="text" class="block-inp" style="width:160px" id="blockReasonInp" placeholder="Reason (optional)" />
+        <button class="btn-block" onclick="blockUser()">⛔ Block</button>
+      </div>
+      <!-- Selected preview -->
+      <div id="blockPreview" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(124,58,237,.1);border:1px solid #7c3aed;font-size:10px;letter-spacing:1px;color:#c084fc;width:100%"></div>
+    </div>
+    <div class="blocked-list" id="blockedList">
+      <div class="blocked-empty">Loading...</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ORDER DETAIL MODAL -->
+<div class="modal-bg" id="detailModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Order Detail</h3>
+      <button class="close-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="admin-toast" id="adminToast"></div>
+
+<script type="module">
+import {
+  auth, db, onAuthStateChanged, signOut,
+  collection, query, orderBy, onSnapshot,
+  doc, updateDoc, deleteDoc, serverTimestamp, setDoc, getDoc
+} from './firebase-config.js';
+
+// ════════════════════════════════
+//  ADMIN CONFIG — put YOUR email here
+// ════════════════════════════════
+const ADMIN_EMAILS = [
+  'amedsaad036@gmail.com',   // ← your email
+  // add more admin emails here if needed
+];
+
+// ── State ──
+let allOrders   = [];
+let activeFilter = 'all';
+let blockedUsers = [];
+
+// ── Auth Guard ──
+onAuthStateChanged(auth, user => {
+  if (!user) {
+    window.location.href = 'login.html';
+    return;
+  }
+  if (!ADMIN_EMAILS.includes(user.email)) {
+    // Not an admin — redirect to shop
+    document.getElementById('loadingGate').innerHTML =
+      '<div style="text-align:center;padding:40px"><p style="color:var(--crimson);font-size:12px;letter-spacing:3px">ACCESS DENIED ☠</p><p style="color:var(--ash);font-size:10px;margin-top:10px;letter-spacing:2px">You are not authorized to view this page.</p><a href="index.html" style="display:inline-block;margin-top:20px;color:var(--blood);font-size:10px;letter-spacing:2px">← Return to Shop</a></div>';
+    return;
+  }
+
+  // Admin confirmed
+  document.getElementById('loadingGate').style.display = 'none';
+  document.getElementById('adminDash').style.display   = 'block';
+
+  // Nav
+  const nr = document.getElementById('navRight');
+  nr.innerHTML = '<div class="user-pill" style="gap:8px">'+
+    '<span class="user-name" style="color:var(--blood);font-size:9px;letter-spacing:2px">☠ ADMIN</span>'+
+    '<span class="user-name">'+user.email+'</span>'+
+    '<button class="btn-logout" id="logoutBtn">Sign out</button>'+
+    '</div>';
+  document.getElementById('logoutBtn').onclick = () => signOut(auth).then(() => window.location.href = 'login.html');
+
+  // Start real-time listener
+  listenOrders();
+  listenBlockedUsers();
+});
+
+// ── Real-time orders listener ──
+function listenOrders() {
+  const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+  onSnapshot(q, snap => {
+    allOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    updateStats();
+    renderOrders();
+  }, err => {
+    document.getElementById('ordersWrap').innerHTML =
+      '<div class="table-msg" style="color:var(--crimson)">Error loading orders: ' + err.message + '</div>';
+  });
+}
+
+// ── Stats ──
+function updateStats() {
+  document.getElementById('statTotal').textContent     = allOrders.length;
+  document.getElementById('statPending').textContent   = allOrders.filter(o => o.status === 'pending').length;
+  document.getElementById('statConfirmed').textContent = allOrders.filter(o => o.status === 'confirmed').length;
+  document.getElementById('statCancelled').textContent = allOrders.filter(o => o.status === 'cancelled').length;
+  document.getElementById('statBlocked').textContent   = blockedUsers.length;
+}
+
+// ── Blocked Users Listener ──
+function listenBlockedUsers() {
+  const q = query(collection(db, 'blockedUsers'), orderBy('blockedAt', 'desc'));
+  onSnapshot(q, snap => {
+    blockedUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    updateStats();
+    renderBlockedUsers();
+  }, err => {
+    document.getElementById('blockedList').innerHTML =
+      '<div class="blocked-empty" style="color:var(--crimson)">Error: ' + err.message + '</div>';
+  });
+}
+
+// ── Render Blocked Users ──
+function renderBlockedUsers() {
+  const list = document.getElementById('blockedList');
+  if (!blockedUsers.length) {
+    list.innerHTML = '<div class="blocked-empty">No blocked users</div>';
+    return;
+  }
+  list.innerHTML = blockedUsers.map(u => {
+    const date = u.blockedAt?.toDate
+      ? u.blockedAt.toDate().toLocaleString('en-GB')
+      : 'N/A';
+    const identity = [
+      u.email ? '✉ ' + u.email : '',
+      u.phone ? '☎ ' + u.phone : '',
+      u.uid   ? '🔑 ' + u.uid  : ''
+    ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+    return '<div class="blocked-row">'+
+      '<div>'+
+      '<div class="blocked-email">⛔ ' + (u.name || u.email || u.phone) + '</div>'+
+      '<div class="blocked-meta">' + identity + '</div>'+
+      '<div class="blocked-meta">Blocked: ' + date + (u.reason ? ' &nbsp;·&nbsp; Reason: ' + u.reason : '') + '</div>'+
+      '</div>'+
+      '<button class="btn-unblock" onclick="unblockUser(\'' + u.id + '\', \'' + (u.name || u.email || u.phone) + '\')">✓ Unblock</button>'+
+      '</div>';
+  }).join('');
+}
+
+// ── Block search state ──
+let selectedBlockTarget = null; // { name, email, phone }
+
+// ── Search customers from existing orders ──
+window.searchCustomers = () => {
+  const q = document.getElementById('blockSearchInp').value.trim().toLowerCase();
+  const dd = document.getElementById('blockDropdown');
+
+  if (q.length < 2) { dd.classList.remove('open'); return; }
+
+  // Build unique customer list from orders
+  const seen = new Map();
+  allOrders.forEach(o => {
+    const key = (o.userEmail || o.customer?.phone || '').toLowerCase();
+    if (!key) return;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        name:  o.customer?.name  || '—',
+        email: o.userEmail       || '',
+        phone: o.customer?.phone || '',
+        uid:   o.userId          || ''
+      });
+    }
+  });
+
+  const results = [...seen.values()].filter(c => {
+    return c.name.toLowerCase().includes(q) ||
+           c.email.toLowerCase().includes(q) ||
+           c.phone.toLowerCase().includes(q);
+  }).slice(0, 8);
+
+  if (!results.length) {
+    // Allow manual entry
+    dd.innerHTML = '<div class="block-opt" onclick="selectManual()"><div class="block-opt-name">+ Block manually</div><div class="block-opt-meta">Use what you typed as email/phone</div></div>';
+    dd.classList.add('open');
+    return;
+  }
+
+  dd.innerHTML = results.map((c, i) =>
+    '<div class="block-opt" onclick="selectCustomer(' + i + ')" data-idx="' + i + '">'+
+    '<div class="block-opt-name">' + c.name + '</div>'+
+    '<div class="block-opt-meta">' +
+    (c.email ? '✉ ' + c.email : '') +
+    (c.email && c.phone ? '<span>·</span>' : '') +
+    (c.phone ? '☎ ' + c.phone : '') +
+    '</div></div>'
+  ).join('');
+
+  // Store results on dd for selection
+  dd._results = results;
+  dd.classList.add('open');
+};
+
+window.selectCustomer = (idx) => {
+  const dd = document.getElementById('blockDropdown');
+  const c = dd._results[idx];
+  selectedBlockTarget = c;
+  document.getElementById('blockSearchInp').value = c.name;
+  dd.classList.remove('open');
+  const preview = document.getElementById('blockPreview');
+  preview.style.display = 'block';
+  preview.innerHTML =
+    '⛔ Will block: <strong>' + c.name + '</strong>' +
+    (c.email ? ' &nbsp;·&nbsp; ✉ ' + c.email : '') +
+    (c.phone ? ' &nbsp;·&nbsp; ☎ ' + c.phone : '') +
+    (c.uid   ? ' &nbsp;·&nbsp; 🔑 UID: <code style="font-size:9px;color:#a78bfa">' + c.uid + '</code>' : ' &nbsp;<span style="font-size:9px;color:#f59e0b">⚠ No UID found (manual block)</span>');
+};
+
+window.selectManual = () => {
+  const val = document.getElementById('blockSearchInp').value.trim();
+  const isEmail = val.includes('@');
+  selectedBlockTarget = {
+    name:  val,
+    email: isEmail ? val : '',
+    phone: isEmail ? '' : val
+  };
+  document.getElementById('blockDropdown').classList.remove('open');
+  const preview = document.getElementById('blockPreview');
+  preview.style.display = 'block';
+  preview.innerHTML = '⛔ Will block: <strong>' + val + '</strong>';
+};
+
+// Close dropdown on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.block-form')) {
+    document.getElementById('blockDropdown').classList.remove('open');
+  }
+});
+
+// ── Block a user ──
+window.blockUser = async () => {
+  const reason = document.getElementById('blockReasonInp').value.trim();
+
+  if (!selectedBlockTarget) {
+    toast('☠ Search and select a customer first', false); return;
+  }
+
+  const { name, email, phone } = selectedBlockTarget;
+  if (!email && !phone) { toast('☠ No email or phone to block', false); return; }
+
+  // Check already blocked
+  const alreadyEmail = email && blockedUsers.find(u => u.email === email);
+  const alreadyPhone = phone && blockedUsers.find(u => u.phone === phone);
+  if (alreadyEmail || alreadyPhone) { toast('☠ Already blocked', false); return; }
+
+  try {
+    const safeId = (email || phone).replace(/[.#$[\]/@\s]/g, '_') + '_' + Date.now();
+    await setDoc(doc(db, 'blockedUsers', safeId), {
+      name:      name  || '',
+      email:     email || '',
+      phone:     phone || '',
+      uid:       selectedBlockTarget.uid || '',
+      reason:    reason || '',
+      blockedAt: serverTimestamp(),
+      blockedBy: auth.currentUser?.email || 'admin'
+    });
+    document.getElementById('blockSearchInp').value  = '';
+    document.getElementById('blockReasonInp').value  = '';
+    document.getElementById('blockPreview').style.display = 'none';
+    selectedBlockTarget = null;
+    toast('⛔ Blocked: ' + (name || email || phone), true);
+  } catch(e) {
+    toast('☠ Error: ' + e.message, false);
+  }
+};
+
+// ── Unblock a user ──
+window.unblockUser = async (id, email) => {
+  if (!confirm('Unblock ' + email + '? They will be able to order again.')) return;
+  try {
+    await deleteDoc(doc(db, 'blockedUsers', id));
+    toast('✓ Unblocked: ' + email, true);
+  } catch(e) {
+    toast('☠ Error: ' + e.message, false);
+  }
+};
+
+// ── Filter ──
+window.setFilter = (f, btn) => {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderOrders();
+};
+
+// ── Render orders table ──
+window.renderOrders = () => {
+  const search = (document.getElementById('searchInp')?.value || '').toLowerCase();
+
+  let orders = allOrders.filter(o => {
+    if (activeFilter !== 'all' && o.status !== activeFilter) return false;
+    if (search) {
+      const hay = [
+        o.customer?.name, o.customer?.phone, o.customer?.city,
+        o.userEmail, o.id
+      ].join(' ').toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  const wrap = document.getElementById('ordersWrap');
+
+  if (!orders.length) {
+    wrap.innerHTML = '<div class="table-msg">☠ No orders found</div>';
+    return;
+  }
+
+  wrap.innerHTML = '<table class="orders-table">'+
+    '<thead><tr>'+
+    '<th>Order ID</th>'+
+    '<th>Customer</th>'+
+    '<th>Items</th>'+
+    '<th>Total</th>'+
+    '<th>Payment</th>'+
+    '<th>Date</th>'+
+    '<th>Status</th>'+
+    '<th>Actions</th>'+
+    '</tr></thead>'+
+    '<tbody>'+
+    orders.map(o => orderRow(o)).join('')+
+    '</tbody></table>';
+};
+
+function orderRow(o) {
+  const date = o.createdAt?.toDate
+    ? o.createdAt.toDate().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    : 'N/A';
+
+  const items = (o.items || []).map(i =>
+    '<div class="item-row">'+i.name+' <span class="item-size">×'+i.qty+'</span></div>'
+  ).join('') || '<div class="item-row" style="color:var(--ash)">—</div>';
+
+  const statusClass = 'status-' + (o.status || 'pending');
+
+  // Payment badge
+  const isBinance = (o.paymentMethod || '').toLowerCase().includes('binance') ||
+                    (o.paymentMethod || '').toLowerCase().includes('usdt');
+  const payBadge = isBinance
+    ? '<span class="pay-badge pay-bn">◈ Binance USDT</span>'
+    : '<span class="pay-badge pay-vf">☠ Vodafone Cash</span>';
+
+  // Don't show actions on already-cancelled orders
+  const isCancelled = o.status === 'cancelled';
+
+  const actions = isCancelled
+    ? '<div style="font-size:9px;color:var(--smoke);letter-spacing:1px;margin-top:4px;font-style:italic">Cancelled</div>'
+    : '<select class="status-select" id="sel_'+o.id+'">'+
+      ['pending','confirmed','cancelled'].map(s =>
+        '<option value="'+s+'"'+(o.status===s?' selected':'')+'>'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>'
+      ).join('')+
+      '</select>'+
+      '<button class="btn-update" onclick="updateStatus(\''+o.id+'\')">✓ Update</button>'+
+      '<button class="btn-cancel" onclick="quickCancel(\''+o.id+'\')">✕ Cancel Order</button>';
+
+  return '<tr>'+
+    // ID
+    '<td><div class="order-id">'+o.id.slice(0,10).toUpperCase()+'...</div>'+
+    '<button onclick="showDetail(\''+o.id+'\')" style="margin-top:6px;background:none;border:1px solid var(--smoke);color:var(--ash);padding:3px 8px;font-size:8px;letter-spacing:1px;cursor:pointer;font-family:Cinzel,serif;transition:all .2s" onmouseover="this.style.borderColor=\'var(--blood)\';this.style.color=\'var(--crimson)\'" onmouseout="this.style.borderColor=\'var(--smoke)\';this.style.color=\'var(--ash)\'">View</button></td>'+
+    // Customer
+    '<td><div class="customer-name">'+(o.customer?.name || '—')+'</div>'+
+    '<div class="customer-phone">'+(o.customer?.phone || '—')+'</div>'+
+    '<div class="customer-email">'+(o.userEmail || '')+'</div>'+
+    (o.customer?.city ? '<div class="customer-phone">📍 '+o.customer.city+'</div>' : '')+
+    '</td>'+
+    // Items
+    '<td>'+items+'</td>'+
+    // Total
+    '<td><div class="order-total" style="color:'+(isBinance?'#F0B90B':'var(--crimson)')+'">'+
+    (isBinance ? (o.usdtAmount||10)+' USDT' : (o.total||0)+' EGP')+
+    '</div></td>'+
+    // Payment
+    '<td>'+payBadge+'</td>'+
+    // Date
+    '<td><div class="order-date">'+date+'</div></td>'+
+    // Status
+    '<td><span class="status-badge '+statusClass+'">'+(o.status || 'pending')+'</span></td>'+
+    // Actions
+    '<td style="min-width:150px">'+actions+'</td>'+
+    '</tr>';
+}
+
+// ── Quick cancel — deletes from Firebase & removes row ──
+window.quickCancel = async (orderId) => {
+  if (!confirm('Cancel & delete this order? This cannot be undone.')) return;
+  try {
+    await deleteDoc(doc(db, 'orders', orderId));
+    allOrders = allOrders.filter(o => o.id !== orderId);
+    updateStats();
+    renderOrders();
+    toast('✕ Order deleted', false);
+  } catch(e) {
+    toast('☠ Error: ' + e.message);
+  }
+};
+
+// ── Update order status ──
+window.updateStatus = async (orderId) => {
+  const sel = document.getElementById('sel_'+orderId);
+  const newStatus = sel.value;
+  const btn = sel.nextElementSibling;
+
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  try {
+    if (newStatus === 'cancelled') {
+      if (!confirm('Cancel & delete this order? This cannot be undone.')) {
+        btn.disabled = false;
+        btn.textContent = '✓ Update';
+        return;
+      }
+      await deleteDoc(doc(db, 'orders', orderId));
+      allOrders = allOrders.filter(o => o.id !== orderId);
+      updateStats();
+      renderOrders();
+      toast('✕ Order deleted', false);
+    } else {
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+      toast('✓ Order updated → ' + newStatus.toUpperCase(), true);
+      btn.disabled = false;
+      btn.textContent = '✓ Update';
+    }
+  } catch(e) {
+    toast('☠ Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '✓ Update';
+  }
+};
+
+// ── Show full order detail ──
+window.showDetail = (orderId) => {
+  const o = allOrders.find(x => x.id === orderId);
+  if (!o) return;
+
+  const date = o.createdAt?.toDate
+    ? o.createdAt.toDate().toLocaleString('en-GB')
+    : 'N/A';
+
+  const itemsHtml = (o.items || []).map(i =>
+    '<div class="detail-item">'+
+    '<div class="name">'+i.name+'</div>'+
+    '<div class="meta">Qty: '+i.qty+' &nbsp;·&nbsp; '+i.price+' EGP each &nbsp;·&nbsp; Subtotal: '+(i.price*i.qty)+' EGP</div>'+
+    '</div>'
+  ).join('') || '<div class="detail-item"><div class="name" style="color:var(--ash)">No items recorded</div></div>';
+
+  const isBinance = (o.paymentMethod||'').toLowerCase().includes('binance') ||
+                    (o.paymentMethod||'').toLowerCase().includes('usdt');
+  const payBadge = isBinance
+    ? '<span class="pay-badge pay-bn">◈ Binance USDT · 10 USDT</span>'
+    : '<span class="pay-badge pay-vf">☠ Vodafone Cash</span>';
+
+  const isCancelled = o.status === 'cancelled';
+  const quickUpdate = isCancelled ? '<div style="margin-top:16px;padding:10px;background:rgba(139,0,0,.08);border:1px solid var(--blood);font-size:9px;letter-spacing:2px;color:var(--crimson);text-align:center">ORDER CANCELLED</div>' :
+    '<div style="margin-top:20px;border-top:1px solid var(--border);padding-top:20px">'+
+    '<div class="detail-key" style="margin-bottom:10px">Update Status</div>'+
+    '<select class="status-select" id="modalSel_'+o.id+'">'+
+    ['pending','confirmed','cancelled'].map(s =>
+      '<option value="'+s+'"'+(o.status===s?' selected':'')+'>'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>'
+    ).join('')+
+    '</select>'+
+    '<button class="btn-update" style="margin-top:10px" onclick="updateStatusModal(\''+o.id+'\')">✓ Update Status</button>'+
+    '<button class="btn-cancel" style="margin-top:6px" onclick="quickCancel(\''+o.id+'\');closeModal()">✕ Cancel This Order</button>'+
+    '</div>';
+
+  document.getElementById('detailBody').innerHTML =
+    '<div class="detail-row"><span class="detail-key">Order ID</span><span class="detail-val" style="font-family:monospace;font-size:10px">'+o.id+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">Date</span><span class="detail-val">'+date+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">Status</span><span class="detail-val"><span class="status-badge status-'+(o.status||'pending')+'">'+(o.status||'pending')+'</span></span></div>'+
+    '<div class="detail-row"><span class="detail-key">Payment</span><span class="detail-val">'+payBadge+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">Customer Name</span><span class="detail-val">'+(o.customer?.name||'—')+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">Phone</span><span class="detail-val">'+(o.customer?.phone||'—')+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">City / Address</span><span class="detail-val">'+(o.customer?.city||'—')+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">Email</span><span class="detail-val">'+(o.userEmail||'—')+'</span></div>'+
+    '<div class="detail-row"><span class="detail-key">Notes</span><span class="detail-val">'+(o.customer?.notes||'—')+'</span></div>'+
+    '<div class="detail-items-title">Items Ordered</div>'+
+    itemsHtml+
+    '<div class="detail-row" style="margin-top:12px;border-top:1px solid var(--blood);padding-top:12px">'+
+    '<span class="detail-key" style="color:var(--white);font-size:12px">TOTAL</span>'+
+    '<span class="detail-val" style="color:'+(isBinance?'#F0B90B':'var(--crimson)')+';font-size:18px;font-weight:700">'+
+    (isBinance ? (o.usdtAmount||10)+' USDT' : (o.total||0)+' EGP')+
+    '</span></div>'+
+    quickUpdate;
+
+  document.getElementById('detailModal').classList.add('open');
+};
+
+window.closeModal = () => document.getElementById('detailModal').classList.remove('open');
+document.getElementById('detailModal').addEventListener('click', e => { if(e.target === document.getElementById('detailModal')) closeModal(); });
+
+window.updateStatusModal = async (orderId) => {
+  const newStatus = document.getElementById('modalSel_'+orderId).value;
+  try {
+    if (newStatus === 'cancelled') {
+      if (!confirm('Cancel & delete this order? This cannot be undone.')) return;
+      await deleteDoc(doc(db, 'orders', orderId));
+      allOrders = allOrders.filter(o => o.id !== orderId);
+      updateStats();
+      renderOrders();
+      toast('✕ Order deleted', false);
+      closeModal();
+    } else {
+      await updateDoc(doc(db, 'orders', orderId), { status: newStatus, updatedAt: serverTimestamp() });
+      toast('✓ Status updated → ' + newStatus.toUpperCase(), true);
+      closeModal();
+    }
+  } catch(e) {
+    toast('☠ Error: ' + e.message);
+  }
+};
+
+// ── Toast ──
+function toast(msg, success = false) {
+  const t = document.getElementById('adminToast');
+  t.textContent = msg;
+  t.className = 'admin-toast show' + (success ? ' green' : '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
