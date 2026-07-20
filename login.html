@@ -241,6 +241,35 @@
 .google-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .google-btn svg { flex-shrink: 0; }
 
+/* ── IN-APP BROWSER WARNING ── */
+.inapp-warning {
+  display: none;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: rgba(200,140,0,0.1);
+  border-left: 3px solid #cc8800;
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #ffcc66;
+}
+.inapp-warning.show { display: block; }
+.inapp-warning b { color: #ffdd88; font-style: normal; }
+.inapp-open-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 14px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #fff;
+  background: #cc8800;
+  border: none;
+  cursor: pointer;
+}
+
 /* ── SPINNER ── */
 .spinner {
   display: inline-block; width: 13px; height: 13px;
@@ -279,6 +308,14 @@
       <div class="auth-tabs">
         <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')">Sign In</button>
         <button class="auth-tab" id="tabReg" onclick="switchTab('register')">Register</button>
+      </div>
+
+      <!-- In-app browser warning (shown via JS if TikTok/IG/FB webview detected) -->
+      <div class="inapp-warning" id="inappWarning">
+        <b>Google Sign-In won't work in this app's browser.</b><br>
+        Tap the <b>⋯</b> or <b>Share</b> icon above and choose <b>"Open in Browser"</b> — or use email &amp; password below instead.
+        <br>
+        <button type="button" class="inapp-open-btn" id="inappOpenBtn" style="display:none">Open in Chrome</button>
       </div>
 
       <!-- Google sign-in -->
@@ -344,6 +381,38 @@
 </div>
 
 <div id="toast" class="toast"></div>
+
+<!-- ══ IN-APP BROWSER DETECTION ══ -->
+<script>
+(function () {
+  const ua = navigator.userAgent || '';
+  // TikTok, Instagram, Facebook/Messenger, Snapchat, LinkedIn in-app webviews
+  const isInApp = /musical_ly|bytedancewebview|tiktok|instagram|fbav|fban|fb_iab|messenger|snapchat|linkedinapp/i.test(ua);
+  const isAndroid = /android/i.test(ua);
+
+  if (isInApp) {
+    const warning   = document.getElementById('inappWarning');
+    const googleBtn = document.getElementById('googleBtn');
+    const openBtn   = document.getElementById('inappOpenBtn');
+
+    warning.classList.add('show');
+    googleBtn.disabled = true;
+    googleBtn.title = 'Open this page in your browser to use Google Sign-In';
+
+    if (isAndroid) {
+      // Force-launch Chrome via Android intent (works from most in-app webviews)
+      openBtn.style.display = 'inline-block';
+      openBtn.addEventListener('click', () => {
+        const url = window.location.href.replace(/^https?:\/\//, '');
+        window.location.href = 'intent://' + url + '#Intent;scheme=https;package=com.android.chrome;end';
+      });
+    }
+    // iOS: no way to force-open Safari from a webview — user must tap
+    // the "⋯" / share icon in the in-app browser itself and choose
+    // "Open in Safari" / "Open in Browser".
+  }
+})();
+</script>
 
 <!-- ══ FIREBASE MODULE ══ -->
 <script type="module">
@@ -465,6 +534,8 @@ function errMsg(code) {
     'auth/invalid-email':        'Please enter a valid email address.',
     'auth/too-many-requests':    'Too many attempts. Please wait a few minutes.',
     'auth/network-request-failed':'Network error. Check your connection.',
+    'auth/missing-initial-state': 'Google Sign-In isn\'t supported in this app\'s built-in browser (e.g. TikTok, Instagram). Please open this page in Chrome or Safari — tap the ⋯ or Share icon and choose "Open in Browser" — or sign in with email & password instead.',
+    'auth/web-storage-unsupported': 'Google Sign-In isn\'t supported in this app\'s built-in browser (e.g. TikTok, Instagram). Please open this page in Chrome or Safari, or sign in with email & password instead.',
   };
   return map[code] || 'Something went wrong. Please try again.';
 }
