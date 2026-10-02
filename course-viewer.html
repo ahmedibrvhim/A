@@ -33,27 +33,47 @@ const DRIVE_API_KEY = 'AIzaSyBLZfVie22Xs4ugjcgIw4IWjhhOrYiL0e8'; // ← paste yo
 let _driveTokenClient = null;
 let _driveAccessToken = null;
 
-// Load GIS (Google Identity Services) for token
+// Load GIS (Google Identity Services) for token — rejects instead of hanging forever
+let _driveAuthPromise = null;
+let _driveTokenExpiry = 0;
 function loadDriveAuth() {
-  return new Promise((resolve) => {
-    if (_driveAccessToken) { resolve(_driveAccessToken); return; }
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.onload = () => {
-      _driveTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: DRIVE_SCOPE,
-        callback: (resp) => {
-          if (resp.access_token) {
-            _driveAccessToken = resp.access_token;
-            resolve(resp.access_token);
-          }
-        }
-      });
-      _driveTokenClient.requestAccessToken({ prompt: '' });
+  if (_driveAccessToken && Date.now() < _driveTokenExpiry) return Promise.resolve(_driveAccessToken);
+  if (_driveAuthPromise) return _driveAuthPromise;
+  _driveAuthPromise = new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, v) => { if (done) return; done = true; clearTimeout(timer); _driveAuthPromise = null; fn(v); };
+    const timer = setTimeout(() => finish(reject, new Error('Google sign-in timed out. Allow pop-ups for this site and try again.')), 60000);
+    const start = () => {
+      try {
+        _driveTokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: DRIVE_SCOPE,
+          callback: (resp) => {
+            if (resp && resp.access_token) {
+              _driveAccessToken = resp.access_token;
+              _driveTokenExpiry = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
+              finish(resolve, resp.access_token);
+            } else {
+              finish(reject, new Error('Google authorization failed: ' + ((resp && (resp.error_description || resp.error)) || 'no token')));
+            }
+          },
+          error_callback: (err) => finish(reject, new Error('Google sign-in error: ' + (err && (err.message || err.type) || 'popup blocked or closed')))
+        });
+        _driveTokenClient.requestAccessToken({ prompt: '' });
+      } catch (e) { finish(reject, e); }
     };
-    document.head.appendChild(script);
+    if (window.google && google.accounts && google.accounts.oauth2) { start(); return; }
+    let script = document.getElementById('gisScript');
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'gisScript';
+      script.src = 'https://accounts.google.com/gsi/client';
+      document.head.appendChild(script);
+    }
+    script.addEventListener('load', start, { once: true });
+    script.addEventListener('error', () => finish(reject, new Error('Could not load Google sign-in script')), { once: true });
   });
+  return _driveAuthPromise;
 }
 
 // ── VIDEO COMPRESSION ────────────────────────────
@@ -1066,7 +1086,7 @@ input.hidden-file{display:none;}
   transition:opacity 1.2s ease;
   pointer-events:none;
 }
-.cover-bg-img.loaded{ opacity:.18; }
+.cover-bg-img.loaded{ opacity:.5; }
 .cover-vignette{
   position:absolute;inset:0;
   background:radial-gradient(ellipse at center, transparent 30%, rgba(6,6,6,.85) 100%);
@@ -2405,68 +2425,101 @@ async function loadMeta() {
 })();
 
 
-// ── COVER IMAGE LOADER (robust: retries, cached URL fallback, never deletes the record) ──
+// ── COVER IMAGE ─────────────────────────────────
+// The cover is shrunk in the browser and stored directly in Firestore (driveFiles/cover_image → dataUrl).
+// No Google pop-up, no Drive permissions, so it uploads in a second and always shows for every visitor.
+function compressImageToDataUrl(file, maxSide = 1600) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+        const w = Math.max(1, Math.round(im.naturalWidth * scale));
+        const h = Math.max(1, Math.round(im.naturalHeight * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#060606'; ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(im, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        // Firestore docs max out at 1 MB — lower quality until it fits comfortably
+        let q = 0.85, out = c.toDataURL('image/jpeg', q);
+        while (out.length > 700000 && q > 0.3) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+        if (out.length > 900000) return reject(new Error('Image is too large even after compression. Try a smaller image.'));
+        resolve(out);
+      } catch (e) { reject(e); }
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read this image file.')); };
+    im.src = url;
+  });
+}
+
 async function loadCoverImage() {
   const img = document.getElementById('coverBgImg');
   if (!img) return;
   const removeBtn = document.getElementById('removeCoverBtn');
-  const show = (url) => new Promise((resolve, reject) => {
+  const tryUrl = (url) => new Promise((resolve, reject) => {
     img.onload  = () => { img.classList.add('loaded'); if (removeBtn) removeBtn.style.display = ''; resolve(); };
     img.onerror = () => reject(new Error('cover load failed'));
     img.src = url;
-    if (img.complete && img.naturalWidth > 0) img.onload();
   });
 
-  // 1) show last known URL instantly (survives Drive/Firestore hiccups)
-  let cached = null;
-  try { cached = localStorage.getItem('cover_image_url'); } catch(e) {}
-  if (cached) show(cached).catch(()=>{});
+  // Wait for Firebase helpers (they resolve before this runs, but be safe)
+  try { await window._firebaseReadyPromise; } catch(e) {}
 
-  // 2) get the real record from Firestore and (re)load with retries
   let rec = null;
   for (let i = 0; i < 3 && !rec; i++) {
-    try { rec = await window.loadDriveFileRecord?.('cover_image'); } catch(e) {}
-    if (!rec) await new Promise(r => setTimeout(r, 800));
+    try { rec = await window.loadDriveFileRecord?.('cover_image'); } catch(e) { console.warn('Cover record read failed:', e); }
+    if (!rec && i < 2) await new Promise(r => setTimeout(r, 700));
   }
-  if (rec?.publicUrl) {
-    try { localStorage.setItem('cover_image_url', rec.publicUrl); } catch(e) {}
-    for (let i = 0; i < 3; i++) {
-      try {
-        await show(i === 0 ? rec.publicUrl : rec.publicUrl + '&r=' + Date.now());
-        return;
-      } catch(e) { await new Promise(r => setTimeout(r, 1200)); }
-    }
-    console.warn('Cover image failed to load (record kept, will retry next visit).');
-  } else if (!cached) {
-    // legacy local fallback
-    try {
-      const dataUrl = await idbGet('files', 'cover_image');
-      if (dataUrl) await show(dataUrl);
-    } catch(e) {}
+
+  const candidates = [];
+  if (rec?.dataUrl) candidates.push(rec.dataUrl);
+  if (rec?.fileId) {
+    candidates.push(`https://lh3.googleusercontent.com/d/${rec.fileId}=w1600`);
+    candidates.push(`https://drive.google.com/thumbnail?id=${rec.fileId}&sz=w1600`);
+    candidates.push(`https://drive.google.com/uc?export=view&id=${rec.fileId}`);
+  } else if (rec?.publicUrl) candidates.push(rec.publicUrl);
+
+  for (const u of candidates) {
+    try { await tryUrl(u); return; } catch(e) {}
   }
+
+  // Legacy local fallback (old browsers' IndexedDB copy)
+  try {
+    const dataUrl = await idbGet('files', 'cover_image');
+    if (dataUrl) await tryUrl(dataUrl);
+  } catch(e) {}
 }
 
-// ── COVER IMAGE UPLOAD ──────────────────────────
 async function handleCoverImageUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
   e.target.value = '';
-  showLoading('Uploading cover image to Drive…');
+  showLoading('Saving cover image…');
   try {
-    const { fileId, publicUrl } = await uploadToDrive(file, 'cover_image_' + Date.now() + '.' + file.name.split('.').pop());
-    await window.saveDriveFileRecord('cover_image', { fileId, publicUrl, type: 'image', name: file.name });
-    try { localStorage.setItem('cover_image_url', publicUrl); } catch(e) {}
+    if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
+    const dataUrl = await compressImageToDataUrl(file);
+
+    // remember the old Drive file (if any) so we can clean it up after saving the new one
+    const old = await window.loadDriveFileRecord?.('cover_image').catch(()=>null);
+
+    await window.saveDriveFileRecord('cover_image', { dataUrl, type: 'image', name: file.name, updatedAt: Date.now() });
+
     const img = document.getElementById('coverBgImg');
     img.classList.remove('loaded');
-    img.src = publicUrl;
     img.onload = () => img.classList.add('loaded');
+    img.src = dataUrl;
     const removeBtn = document.getElementById('removeCoverBtn');
     if (removeBtn) removeBtn.style.display = '';
     hideLoading();
-    showToast('✅ Cover image saved to Drive!');
+    showToast('✅ Cover image saved!');
+
+    if (old?.fileId) deleteFromDrive(old.fileId); // best-effort, non-blocking
   } catch(err) {
     hideLoading();
-    showToast('⚠ Upload failed: ' + err.message);
+    showToast('⚠ Cover upload failed: ' + (err && err.message || err));
     console.error(err);
   }
 }
@@ -2478,12 +2531,11 @@ async function handleRemoveCoverImage() {
   try {
     // Delete from Drive (needs the fileId stored in Firestore)
     const record = await window.loadDriveFileRecord?.('cover_image').catch(()=>null);
-    if (record?.fileId) await deleteFromDrive(record.fileId);
+    if (record?.fileId) deleteFromDrive(record.fileId); // best-effort, never blocks
     // Delete Firestore record
     await window.deleteDriveFileRecord?.('cover_image').catch(()=>{});
     // Delete from IDB legacy fallback too
     await idbDelete('files', 'cover_image').catch(()=>{});
-    try { localStorage.removeItem('cover_image_url'); } catch(e) {}
     // Clear the image from the UI
     const img = document.getElementById('coverBgImg');
     img.classList.remove('loaded');
