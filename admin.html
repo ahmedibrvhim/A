@@ -422,6 +422,21 @@
     </div>
   </div>
 
+
+  <!-- RATINGS -->
+  <div style="padding:0 24px;margin-top:32px">
+    <div class="sec-title" style="padding:0 0 16px">
+      <h2 style="font-size:14px;letter-spacing:4px">&#9733; Ratings</h2>
+      <p style="color:#f59e0b" id="ratingsSummary">Loading...</p>
+      <div class="sec-line" style="background:linear-gradient(90deg,#f59e0b,transparent)"></div>
+    </div>
+  </div>
+  <div class="blocked-panel" style="margin-bottom:60px">
+    <div class="blocked-list" id="ratingsList">
+      <div class="blocked-empty">Loading...</div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ORDER DETAIL MODAL -->
@@ -457,6 +472,7 @@ const ADMIN_EMAILS = [
 let allOrders   = [];
 let activeFilter = 'all';
 let blockedUsers = [];
+let allRatings  = [];
 
 // ── Auth Guard ──
 onAuthStateChanged(auth, user => {
@@ -487,6 +503,7 @@ onAuthStateChanged(auth, user => {
   // Start real-time listener
   listenOrders();
   listenBlockedUsers();
+  listenRatings();
 });
 
 // ── Real-time orders listener ──
@@ -921,6 +938,92 @@ window.updateStatusModal = async (orderId) => {
       closeModal();
     }
   } catch(e) {
+    toast('☠ Error: ' + e.message);
+  }
+};
+
+
+// ════════════════════════════════
+//  RATINGS (ratings/{uid} docs, field "stars")
+//  The storefront averages these docs live, so deleting one updates the site.
+// ════════════════════════════════
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function listenRatings() {
+  onSnapshot(collection(db, 'ratings'), snap => {
+    allRatings = snap.docs
+      .filter(d => d.id !== '_aggregate')
+      .map(d => ({ id: d.id, ...d.data() }));
+    renderRatings();
+  }, err => {
+    document.getElementById('ratingsList').innerHTML =
+      '<div class="blocked-empty" style="color:var(--crimson)">Error: ' + esc(err.message) + '</div>';
+  });
+}
+
+// Rating doc id = rater's uid. Use an email stored on the rating if there is one,
+// otherwise look the uid up in orders / blocked users.
+function raterIdentity(r) {
+  let email = r.email || r.userEmail || '';
+  let name  = r.name || r.userName || r.displayName || '';
+  if (!email) {
+    const o = allOrders.find(o => o.userId === r.id && o.userEmail);
+    if (o) { email = o.userEmail; name = name || o.customer?.name || ''; }
+  }
+  if (!email) {
+    const b = blockedUsers.find(b => b.uid === r.id && b.email);
+    if (b) email = b.email;
+  }
+  return { email, name };
+}
+
+function renderRatings() {
+  const list = document.getElementById('ratingsList');
+  const valid = allRatings.filter(r => Number(r.stars) >= 1 && Number(r.stars) <= 5);
+  const avg = valid.length ? (valid.reduce((a, r) => a + Number(r.stars), 0) / valid.length).toFixed(2) : '0.00';
+  document.getElementById('ratingsSummary').textContent =
+    valid.length + ' rating' + (valid.length === 1 ? '' : 's') + ' · average ' + avg + ' / 5';
+
+  if (!allRatings.length) {
+    list.innerHTML = '<div class="blocked-empty">No ratings yet</div>';
+    return;
+  }
+  const ts = r => (r.updatedAt || r.createdAt || r.timestamp)?.toMillis?.() || 0;
+  list.innerHTML = [...allRatings].sort((a, b) => ts(b) - ts(a)).map(r => {
+    const { email, name } = raterIdentity(r);
+    const n = Math.max(0, Math.min(5, Number(r.stars) || 0));
+    const stars = '★'.repeat(n) + '☆'.repeat(5 - n);
+    const t = (r.updatedAt || r.createdAt || r.timestamp)?.toDate;
+    const date = t ? (r.updatedAt || r.createdAt || r.timestamp).toDate().toLocaleString('en-GB') : '';
+    const who = email || name || 'Unknown user';
+    const comment = r.comment || r.review || r.text || '';
+    return '<div class="blocked-row">'+
+      '<div>'+
+        '<div class="blocked-email"><span style="color:#f59e0b;letter-spacing:2px">' + stars + '</span> &nbsp;' + esc(who) + '</div>'+
+        '<div class="blocked-meta">' + (name && email ? esc(name) + ' &nbsp;·&nbsp; ' : '') + '🔑 ' + esc(r.id) + (date ? ' &nbsp;·&nbsp; ' + esc(date) : '') + '</div>'+
+        (comment ? '<div class="blocked-meta" style="text-transform:none;color:var(--white)">“' + esc(comment) + '”</div>' : '')+
+      '</div>'+
+      '<button class="btn-unblock" style="border-color:var(--crimson);color:var(--crimson)" data-rid="' + esc(r.id) + '" onclick="deleteRating(this.dataset.rid)">✕ Delete</button>'+
+    '</div>';
+  }).join('');
+}
+
+window.deleteRating = async (uid) => {
+  const r = allRatings.find(x => x.id === uid);
+  const { email } = r ? raterIdentity(r) : {};
+  if (!confirm('Delete the rating from ' + (email || uid) + '?\nThe website average updates immediately. This cannot be undone.')) return;
+  try {
+    await deleteDoc(doc(db, 'ratings', uid));
+    // keep ratings/_aggregate in sync with the remaining ratings
+    const rest = allRatings.filter(x => x.id !== uid && Number(x.stars) >= 1 && Number(x.stars) <= 5);
+    await setDoc(doc(db, 'ratings', '_aggregate'), {
+      total: rest.reduce((a, x) => a + Number(x.stars), 0),
+      count: rest.length
+    });
+    toast('✓ Rating deleted', true);
+  } catch (e) {
     toast('☠ Error: ' + e.message);
   }
 };

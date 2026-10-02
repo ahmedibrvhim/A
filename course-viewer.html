@@ -516,7 +516,13 @@ window.saveRating = async function(uid, stars) {
   const prevStars = prev.exists() ? prev.data().stars : 0;
 
   // Update user's own doc
-  await setDoc(doc(firestoreDb, 'ratings', uid), { stars, updatedAt: Date.now() });
+  const cu = auth.currentUser;
+  await setDoc(doc(firestoreDb, 'ratings', uid), {
+    stars,
+    updatedAt: Date.now(),
+    email: cu?.email || '',
+    name:  cu?.displayName || ''
+  });
 
   // Update aggregate atomically using a simple read-modify-write
   const aggRef = doc(firestoreDb, 'ratings', '_aggregate');
@@ -533,8 +539,16 @@ window.loadUserRating = async function(uid) {
 };
 
 window.loadAllRatings = async function() {
-  const snap = await getDoc(doc(firestoreDb, 'ratings', '_aggregate'));
-  return snap.exists() ? snap.data() : { total: 0, count: 0 };
+  // Count the real rating docs (not the cached _aggregate) so ratings the
+  // admin deletes disappear from the average immediately.
+  const snap = await getDocs(collection(firestoreDb, 'ratings'));
+  let total = 0, count = 0;
+  snap.forEach(d => {
+    if (d.id === '_aggregate') return;
+    const s = Number(d.data().stars || 0);
+    if (s >= 1 && s <= 5) { total += s; count++; }
+  });
+  return { total, count };
 };
 
 // ══════════════════════════════════════════════════
