@@ -642,16 +642,15 @@
   gap: 2px;
 }
 .book-rating-star {
+  display: inline-block;
   font-size: 16px;
-  color: var(--smoke);
   line-height: 1;
-}
-.book-rating-star.filled { color: var(--gold-light); }
-.book-rating-star.half {
-  background: linear-gradient(90deg, var(--gold-light) 50%, var(--smoke) 50%);
+  /* --fill = % of the star that is gold (0–100), set from JS */
+  background: linear-gradient(90deg, var(--gold-light) var(--fill, 0%), var(--smoke) var(--fill, 0%));
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
   background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 .book-rating-value {
   font-size: 11px;
@@ -1223,14 +1222,9 @@ import { auth, db, onAuthStateChanged, signOut, collection, addDoc, serverTimest
     const stars = starsEl.querySelectorAll('.book-rating-star');
 
     stars.forEach((s, i) => {
-      const starVal = i + 1;
-      s.classList.remove('filled', 'half');
-
-      if (avgRating >= starVal) {
-        s.classList.add('filled');
-      } else if (avgRating >= starVal - 0.5) {
-        s.classList.add('half');
-      }
+      // fraction of this star to fill: 4.8 -> stars 1-4 = 100%, star 5 = 80%
+      const fill = Math.max(0, Math.min(1, avgRating - i));
+      s.style.setProperty('--fill', (fill * 100).toFixed(0) + '%');
     });
 
   } catch (e) {

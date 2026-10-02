@@ -304,7 +304,7 @@ let _firebaseReady;
 window._firebaseReadyPromise = new Promise(res => { _firebaseReady = res; });
 </script>
 <script type="module">
-import { auth, onAuthStateChanged } from "./firebase-config.js";
+import { auth, onAuthStateChanged, signOut } from "./firebase-config.js";
 import {
   db as firestoreDb,
   doc, setDoc, getDoc, deleteDoc,
@@ -318,6 +318,41 @@ import {
 // Show the gate immediately, before auth resolves
 document.getElementById('accessGate').style.display = 'flex';
 document.getElementById('appShell').style.display   = 'none';
+
+
+// ── BLOCKED USER CHECK (same rules as curses.html: by uid or email) ──
+async function findBlockRecord(user) {
+  try {
+    if (user.uid) {
+      const s1 = await getDocs(query(collection(firestoreDb, 'blockedUsers'), where('uid', '==', user.uid)));
+      if (!s1.empty) return s1.docs[0].data();
+    }
+    if (user.email) {
+      const s2 = await getDocs(query(collection(firestoreDb, 'blockedUsers'), where('email', '==', user.email)));
+      if (!s2.empty) return s2.docs[0].data();
+    }
+  } catch (e) { console.warn('Block check error:', e); }
+  return null;
+}
+function showBlockedGate(rec) {
+  const gate = document.getElementById('accessGate');
+  const gateMsg = document.getElementById('gateMsg');
+  gate.style.display = 'flex';
+  document.getElementById('appShell').style.display = 'none';
+  const reason = rec && rec.reason
+    ? `<div class="gate-detail" style="color:#c084fc;">⛔ Reason: ${String(rec.reason).replace(/</g,'&lt;')}</div>` : '';
+  gateMsg.innerHTML = `
+    <div class="gate-icon">⛔</div>
+    <div class="gate-title">Access Blocked</div>
+    <div class="gate-sub">Your account has been restricted.</div>
+    ${reason}
+    <a href="https://discord.gg/W3Vm3sgyRG" target="_blank" rel="noopener" class="gate-btn">Contact Support on Discord</a>
+    <a href="#" class="gate-btn" id="blockedSignOutBtn" style="margin-top:10px;">Sign Out</a>`;
+  document.getElementById('blockedSignOutBtn').onclick = (e) => {
+    e.preventDefault();
+    signOut(auth).then(() => location.href = 'curses.html');
+  };
+}
 
 async function checkAccess(user) {
   const gate = document.getElementById('accessGate');
@@ -342,6 +377,11 @@ async function checkAccess(user) {
     });
     return;
   }
+
+  // Blocked users never get in, even with a confirmed order
+  gateMsg.innerHTML = `<div class="gate-icon" style="animation:spinSlow 2s linear infinite;">☠</div><div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>`;
+  const blockRec = await findBlockRecord(user);
+  if (blockRec) { showBlockedGate(blockRec); return; }
 
   // Check Firestore for a confirmed order
   try {
@@ -2360,39 +2400,51 @@ async function loadMeta() {
   document.getElementById('courseTitle').textContent = state.courseTitle;
   document.getElementById('coverTitle').textContent  = state.courseTitle;
 
-  // Load cover image from Drive (shared for all users)
-  // _firebaseReadyPromise already resolved inside loadMeta, so we can call directly
-  const coverRecord = await window.loadDriveFileRecord?.('cover_image').catch(()=>null);
-  if (coverRecord?.publicUrl) {
-    const img = document.getElementById('coverBgImg');
-    // Test if the Drive file still exists before showing it
-    const testImg = new Image();
-    testImg.onload = () => {
-      img.src = coverRecord.publicUrl;
-      img.onload = () => img.classList.add('loaded');
-      // Show remove button for admin
-      const removeBtn = document.getElementById('removeCoverBtn');
-      if (removeBtn) removeBtn.style.display = '';
-    };
-    testImg.onerror = async () => {
-      // File was deleted from Drive manually — clean up the stale Firestore record
-      console.warn('Cover image no longer exists on Drive. Clearing stale record.');
-      await window.deleteDriveFileRecord?.('cover_image').catch(()=>{});
-    };
-    testImg.src = coverRecord.publicUrl;
-  } else {
-    // Fallback: try local IDB (old data)
-    idbGet('files', 'cover_image').then(dataUrl => {
-      if (dataUrl) {
-        const img = document.getElementById('coverBgImg');
-        img.src = dataUrl;
-        img.onload = () => img.classList.add('loaded');
-        const removeBtn = document.getElementById('removeCoverBtn');
-        if (removeBtn) removeBtn.style.display = '';
-      }
-    });
-  }
+  // Load cover image (shared for all users) — never deletes the record on a load failure
+  loadCoverImage();
 })();
+
+
+// ── COVER IMAGE LOADER (robust: retries, cached URL fallback, never deletes the record) ──
+async function loadCoverImage() {
+  const img = document.getElementById('coverBgImg');
+  if (!img) return;
+  const removeBtn = document.getElementById('removeCoverBtn');
+  const show = (url) => new Promise((resolve, reject) => {
+    img.onload  = () => { img.classList.add('loaded'); if (removeBtn) removeBtn.style.display = ''; resolve(); };
+    img.onerror = () => reject(new Error('cover load failed'));
+    img.src = url;
+    if (img.complete && img.naturalWidth > 0) img.onload();
+  });
+
+  // 1) show last known URL instantly (survives Drive/Firestore hiccups)
+  let cached = null;
+  try { cached = localStorage.getItem('cover_image_url'); } catch(e) {}
+  if (cached) show(cached).catch(()=>{});
+
+  // 2) get the real record from Firestore and (re)load with retries
+  let rec = null;
+  for (let i = 0; i < 3 && !rec; i++) {
+    try { rec = await window.loadDriveFileRecord?.('cover_image'); } catch(e) {}
+    if (!rec) await new Promise(r => setTimeout(r, 800));
+  }
+  if (rec?.publicUrl) {
+    try { localStorage.setItem('cover_image_url', rec.publicUrl); } catch(e) {}
+    for (let i = 0; i < 3; i++) {
+      try {
+        await show(i === 0 ? rec.publicUrl : rec.publicUrl + '&r=' + Date.now());
+        return;
+      } catch(e) { await new Promise(r => setTimeout(r, 1200)); }
+    }
+    console.warn('Cover image failed to load (record kept, will retry next visit).');
+  } else if (!cached) {
+    // legacy local fallback
+    try {
+      const dataUrl = await idbGet('files', 'cover_image');
+      if (dataUrl) await show(dataUrl);
+    } catch(e) {}
+  }
+}
 
 // ── COVER IMAGE UPLOAD ──────────────────────────
 async function handleCoverImageUpload(e) {
@@ -2403,6 +2455,7 @@ async function handleCoverImageUpload(e) {
   try {
     const { fileId, publicUrl } = await uploadToDrive(file, 'cover_image_' + Date.now() + '.' + file.name.split('.').pop());
     await window.saveDriveFileRecord('cover_image', { fileId, publicUrl, type: 'image', name: file.name });
+    try { localStorage.setItem('cover_image_url', publicUrl); } catch(e) {}
     const img = document.getElementById('coverBgImg');
     img.classList.remove('loaded');
     img.src = publicUrl;
@@ -2430,6 +2483,7 @@ async function handleRemoveCoverImage() {
     await window.deleteDriveFileRecord?.('cover_image').catch(()=>{});
     // Delete from IDB legacy fallback too
     await idbDelete('files', 'cover_image').catch(()=>{});
+    try { localStorage.removeItem('cover_image_url'); } catch(e) {}
     // Clear the image from the UI
     const img = document.getElementById('coverBgImg');
     img.classList.remove('loaded');
