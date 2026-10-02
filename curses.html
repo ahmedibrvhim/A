@@ -634,33 +634,61 @@
 .book-rating {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 22px 0;
 }
 .book-rating-stars {
   display: flex;
-  gap: 2px;
+  gap: 3px;
+  flex-shrink: 0;
 }
+/* each star = grey base + gold copy clipped to the exact rating fraction */
 .book-rating-star {
-  display: inline-block;
-  font-size: 16px;
-  line-height: 1;
-  /* --fill = % of the star that is gold (0–100), set from JS */
-  background: linear-gradient(90deg, var(--gold-light) var(--fill, 0%), var(--smoke) var(--fill, 0%));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.book-rating-star svg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 18px; height: 18px;
+  display: block;
+}
+.book-rating-star .star-base path {
+  fill: rgba(255,255,255,.12);
+  stroke: rgba(255,255,255,.18);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.book-rating-star .star-fill-wrap {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  width: 0%;
+  overflow: hidden;
+  transition: width .9s cubic-bezier(.22,1,.36,1);
+}
+.book-rating-star .star-fill path {
+  fill: #f5c542;
+  stroke: #d9a521;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.book-rating-stars.has-rating .star-fill-wrap svg {
+  filter: drop-shadow(0 0 3px rgba(245,197,66,.45));
 }
 .book-rating-value {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
-  color: var(--gold-light);
-  letter-spacing: 1px;
+  color: #f5c542;
+  letter-spacing: .5px;
+  line-height: 1;
 }
 .book-rating-count {
-  font-size: 8px;
-  letter-spacing: 2px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
   color: var(--ash);
   text-transform: uppercase;
 }
@@ -891,13 +919,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <!-- Rating -->
       <div class="book-rating" id="bookRatingDisplay">
-        <div class="book-rating-stars" id="ratingStarsDisplay">
-          <span class="book-rating-star">★</span>
-          <span class="book-rating-star">★</span>
-          <span class="book-rating-star">★</span>
-          <span class="book-rating-star">★</span>
-          <span class="book-rating-star">★</span>
-        </div>
+        <div class="book-rating-stars" id="ratingStarsDisplay"></div>
         <span class="book-rating-value" id="ratingValueDisplay">—</span>
         <span class="book-rating-count" id="ratingCountDisplay">No ratings yet</span>
       </div>
@@ -1179,6 +1201,28 @@ import { auth, db, onAuthStateChanged, signOut, collection, addDoc, serverTimest
 
 // ── Load book rating from Firestore (reads from ratings/_aggregate — same as course-viewer) ──
 // ── Load book rating from actual ratings ──
+
+// Star renderer: 5 stars, each filled by its exact fraction (4.8 = 4 full stars + 80 percent of the 5th)
+const STAR_PATH = "M12 2.5l2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.52l-5.88 3.09 1.12-6.55L2.48 9.42l6.58-.96L12 2.5z";
+function renderStars(container, rating) {
+  const r = Math.max(0, Math.min(5, Number(rating) || 0));
+  container.classList.toggle('has-rating', r > 0);
+  container.setAttribute('role', 'img');
+  container.setAttribute('aria-label', r.toFixed(1) + ' out of 5 stars');
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    const pct = Math.round(Math.max(0, Math.min(1, r - i)) * 100);
+    html += '<span class="book-rating-star">' +
+      '<svg class="star-base" viewBox="0 0 24 24"><path d="' + STAR_PATH + '"/></svg>' +
+      '<span class="star-fill-wrap" data-w="' + pct + '"><svg class="star-fill" viewBox="0 0 24 24"><path d="' + STAR_PATH + '"/></svg></span>' +
+      '</span>';
+  }
+  container.innerHTML = html;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    container.querySelectorAll('.star-fill-wrap').forEach(w => { w.style.width = w.dataset.w + '%'; });
+  }));
+}
+
 (async function loadBookRating() {
   try {
     const { collection, getDocs } = await import('./firebase-config.js');
@@ -1188,6 +1232,7 @@ import { auth, db, onAuthStateChanged, signOut, collection, addDoc, serverTimest
     const cntEl   = document.getElementById('ratingCountDisplay');
 
     if (!starsEl || !valEl || !cntEl) return;
+    renderStars(starsEl, 0);
 
     const snap = await getDocs(collection(db, 'ratings'));
 
@@ -1219,13 +1264,7 @@ import { auth, db, onAuthStateChanged, signOut, collection, addDoc, serverTimest
     valEl.textContent = avgRating.toFixed(1);
     cntEl.textContent = `${count} rating${count === 1 ? '' : 's'}`;
 
-    const stars = starsEl.querySelectorAll('.book-rating-star');
-
-    stars.forEach((s, i) => {
-      // fraction of this star to fill: 4.8 -> stars 1-4 = 100%, star 5 = 80%
-      const fill = Math.max(0, Math.min(1, avgRating - i));
-      s.style.setProperty('--fill', (fill * 100).toFixed(0) + '%');
-    });
+    renderStars(starsEl, avgRating);
 
   } catch (e) {
     console.warn('Could not load rating:', e);
