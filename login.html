@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="color-scheme" content="dark only">
+<meta name="theme-color" content="#000000">
+
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>A — Login / Register</title>
 <link rel="stylesheet" href="style.css">
@@ -384,7 +387,7 @@
 (function () {
   const ua = navigator.userAgent || '';
   // TikTok, Instagram, Facebook/Messenger, Snapchat, LinkedIn in-app webviews
-  const isInApp = /musical_ly|bytedancewebview|tiktok|instagram|fbav|fban|fb_iab|messenger|snapchat|linkedinapp/i.test(ua);
+  const isInApp = /musical_ly|bytedancewebview|tiktok|instagram|fbav|fban|fb_iab|messenger|snapchat|linkedinapp|whatsapp/i.test(ua);
   const isAndroid = /android/i.test(ua);
 
   if (isInApp) {
@@ -574,6 +577,8 @@ window.handleGoogleSignIn = async () => {
   setLoading('googleBtn', true);
   _savingUser = true; // block onAuthStateChanged redirect until Firestore write finishes
   try {
+    // always show the Google account chooser instead of silently reusing/skipping accounts
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
     const cred = await signInWithPopup(auth, googleProvider);
     await saveUser(cred.user); // creates Firestore doc if new, skips if it already exists
     localStorage.setItem('brandA_user', JSON.stringify({
