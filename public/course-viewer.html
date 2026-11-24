@@ -7,8 +7,8 @@
 <meta name="theme-color" content="#000000">
 
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>☠ How To Rebirth</title>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<title>How To Rebirth</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://apis.google.com/js/api.js"></script>
 <script>
@@ -373,7 +373,7 @@ function showBlockedGate(rec) {
     <a href="#" class="gate-btn" id="blockedSignOutBtn" style="margin-top:10px;">Sign Out</a>`;
   document.getElementById('blockedSignOutBtn').onclick = (e) => {
     e.preventDefault();
-    signOut(auth).then(() => location.href = 'curses.html');
+    signOut(auth).then(() => location.href = '/courses');
   };
 }
 
@@ -387,8 +387,8 @@ async function checkAccess(user) {
       <div class="gate-icon">🔒</div>
       <div class="gate-title">Access Denied</div>
       <div class="gate-sub">You need to purchase the course to access this content.</div>
-      <div class="gate-detail">Already bought it? <a href="login.html" class="gate-link">Sign in here</a></div>
-      <a href="curses.html" class="gate-btn">Go to Course Page</a>`;
+      <div class="gate-detail">Already bought it? <a href="/login" class="gate-link">Sign in here</a></div>
+      <a href="/courses" class="gate-btn">Go to Course Page</a>`;
     return;
   }
 
@@ -402,13 +402,13 @@ async function checkAccess(user) {
   }
 
   // Blocked users never get in, even with a confirmed order
-  gateMsg.innerHTML = `<div class="gate-icon" style="animation:spinSlow 2s linear infinite;">☠</div><div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>`;
+  gateMsg.innerHTML = `<div class="gate-icon" style="animation:spinSlow 2s linear infinite;">✦</div><div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>`;
   const blockRec = await findBlockRecord(user);
   if (blockRec) { showBlockedGate(blockRec); return; }
 
   // Check Firestore for a confirmed order
   try {
-    gateMsg.innerHTML = `<div class="gate-icon" style="animation:spinSlow 2s linear infinite;">☠</div><div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>`;
+    gateMsg.innerHTML = `<div class="gate-icon" style="animation:spinSlow 2s linear infinite;">✦</div><div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>`;
     const q = query(
       collection(firestoreDb, 'orders'),
       where('userId', '==', user.uid),
@@ -435,14 +435,14 @@ async function checkAccess(user) {
           <div class="gate-title">Order Pending</div>
           <div class="gate-sub">Your order is being reviewed. You'll get access once it's confirmed.</div>
           <div class="gate-detail">Check back soon or contact support.</div>
-          <a href="curses.html" class="gate-btn">Back to Course Page</a>`;
+          <a href="/courses" class="gate-btn">Back to Course Page</a>`;
       } else {
         gateMsg.innerHTML = `
           <div class="gate-icon">🚫</div>
           <div class="gate-title">No Purchase Found</div>
           <div class="gate-sub">You haven't purchased this course yet — nice try! 😈</div>
           <div class="gate-detail">Buy the course to unlock full access.</div>
-          <a href="curses.html" class="gate-btn">☠ Buy the Course</a>`;
+          <a href="/courses" class="gate-btn">Buy the Course</a>`;
       }
     }
   } catch(e) {
@@ -450,7 +450,7 @@ async function checkAccess(user) {
       <div class="gate-icon">⚠️</div>
       <div class="gate-title">Verification Failed</div>
       <div class="gate-sub">Could not verify your purchase. Please try again.</div>
-      <a href="curses.html" class="gate-btn">Back to Course Page</a>`;
+      <a href="/courses" class="gate-btn">Back to Course Page</a>`;
   }
 }
 
@@ -573,7 +573,7 @@ function showAccessGranted(onComplete) {
 
   // ── Phase 1: Shimmer + gold pulse on the gate box (0ms) ──
   gateMsg.innerHTML = `
-    <div class="gate-icon" style="animation:spinSlow 1s linear infinite;filter:drop-shadow(0 0 12px gold);">☠</div>
+    <div class="gate-icon" style="animation:spinSlow 1s linear infinite;filter:drop-shadow(0 0 12px gold);">✦</div>
     <div class="gate-sub" style="letter-spacing:3px;color:var(--gold-light);">Seal verified…</div>`;
   gateBox.classList.add('gold-pulse');
 
@@ -710,8 +710,8 @@ html,body{
   height:100dvh;
   overflow:hidden;
   background:var(--dark);color:var(--white);
-  font-family:'Cinzel',serif;
-  cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='3' fill='%238b0000'/%3E%3C/svg%3E") 10 10, auto;
+  font-family:'Inter','Cairo',sans-serif;
+  cursor:auto;
   -webkit-text-size-adjust:100%;
 }
 
@@ -726,7 +726,7 @@ html,body{
   backdrop-filter:blur(12px);
 }
 .topbar-logo{
-  font-family:'Cinzel Decorative',cursive;
+  font-family:'Playfair Display',serif;
   font-size:18px;color:var(--blood);
   text-shadow:0 0 24px rgba(139,0,0,.7);
   flex-shrink:0;
@@ -744,7 +744,7 @@ html,body{
   border:1px solid var(--blood);
   color:var(--blood);
   padding:7px 14px;
-  font-family:'Cinzel',serif;
+  font-family:'Inter','Cairo',sans-serif;
   font-size:8px;letter-spacing:2px;text-transform:uppercase;
   cursor:pointer;transition:all .3s;
 }
@@ -803,7 +803,7 @@ html,body{
 .add-chapter-btn{
   background:rgba(139,0,0,.12);border:1px solid var(--blood);
   color:var(--blood);padding:4px 10px;
-  font-family:'Cinzel',serif;font-size:7px;letter-spacing:1px;
+  font-family:'Inter','Cairo',sans-serif;font-size:7px;letter-spacing:1px;
   text-transform:uppercase;cursor:pointer;transition:all .25s;
   white-space:nowrap;
 }
@@ -825,7 +825,7 @@ html,body{
   text-align:left;cursor:pointer;
   padding:12px 14px;
   transition:all .25s;position:relative;
-  font-family:'Cinzel',serif;
+  font-family:'Inter','Cairo',sans-serif;
 }
 .chapter-btn::before{
   content:'';position:absolute;left:0;top:0;bottom:0;
@@ -854,7 +854,7 @@ html,body{
   width:100%;background:none;border:none;
   text-align:left;cursor:pointer;
   padding:13px 14px;
-  font-family:'Cinzel',serif;
+  font-family:'Inter','Cairo',sans-serif;
   transition:all .25s;position:relative;
   border-bottom:1px solid var(--border);
 }
@@ -907,7 +907,7 @@ html,body{
 .ch-action-btn{
   background:none;border:1px solid var(--smoke);
   color:var(--ash);padding:3px 8px;
-  font-family:'Cinzel',serif;font-size:7px;
+  font-family:'Inter','Cairo',sans-serif;font-size:7px;
   letter-spacing:1px;text-transform:uppercase;
   cursor:pointer;transition:all .2s;
   display:flex;align-items:center;gap:4px;
@@ -930,7 +930,7 @@ html,body{
 .lang-tab{
   background:none;border:none;cursor:pointer;
   padding:5px 14px;color:var(--ash);
-  font-family:'Cinzel',serif;font-size:8px;
+  font-family:'Inter','Cairo',sans-serif;font-size:8px;
   letter-spacing:2px;text-transform:uppercase;
   transition:background .2s,color .2s;
   white-space:nowrap;
@@ -966,7 +966,7 @@ input.hidden-file{display:none;}
   width:100%;background:none;border:none;
   text-align:left;cursor:pointer;
   padding:8px 14px;
-  font-family:'Cinzel',serif;
+  font-family:'Inter','Cairo',sans-serif;
   font-size:9px;letter-spacing:1px;
   color:var(--ash);text-transform:uppercase;
   transition:all .2s;border-bottom:1px solid rgba(255,255,255,.02);
@@ -997,7 +997,7 @@ input.hidden-file{display:none;}
 .add-section-input{
   flex:1;background:var(--smoke);border:1px solid var(--border);
   color:var(--white);padding:4px 8px;
-  font-family:'Cinzel',serif;font-size:8px;letter-spacing:1px;
+  font-family:'Inter','Cairo',sans-serif;font-size:8px;letter-spacing:1px;
   outline:none;min-width:0;
 }
 .add-section-input:focus{border-color:var(--blood);}
@@ -1005,14 +1005,14 @@ input.hidden-file{display:none;}
 .add-section-pg{
   width:44px;background:var(--smoke);border:1px solid var(--border);
   color:var(--white);padding:4px 6px;
-  font-family:'Cinzel',serif;font-size:8px;text-align:center;
+  font-family:'Inter','Cairo',sans-serif;font-size:8px;text-align:center;
   outline:none;
 }
 .add-section-pg:focus{border-color:var(--blood);}
 .add-section-btn{
   background:rgba(139,0,0,.15);border:1px solid var(--blood);
   color:var(--blood);padding:4px 8px;
-  font-family:'Cinzel',serif;font-size:9px;
+  font-family:'Inter','Cairo',sans-serif;font-size:9px;
   cursor:pointer;transition:all .2s;
 }
 .add-section-btn:hover{background:rgba(139,0,0,.3);}
@@ -1034,7 +1034,7 @@ input.hidden-file{display:none;}
 .ctrl-btn{
   background:none;border:1px solid var(--smoke);
   color:var(--ash);padding:5px 12px;
-  font-family:'Cinzel',serif;font-size:8px;
+  font-family:'Inter','Cairo',sans-serif;font-size:8px;
   letter-spacing:2px;text-transform:uppercase;
   cursor:pointer;transition:all .25s;
 }
@@ -1049,7 +1049,7 @@ input.hidden-file{display:none;}
 .page-jump input{
   background:var(--dark);border:1px solid var(--smoke);
   color:var(--white);width:44px;padding:4px 6px;
-  font-family:'Cinzel',serif;font-size:9px;text-align:center;
+  font-family:'Inter','Cairo',sans-serif;font-size:9px;text-align:center;
   outline:none;
 }
 .page-jump input:focus{border-color:var(--blood);}
@@ -1129,7 +1129,7 @@ input.hidden-file{display:none;}
   text-shadow:0 2px 12px rgba(0,0,0,.9);
 }
 .cover-title{
-  font-family:'Cinzel Decorative',cursive;
+  font-family:'Playfair Display',serif;
   font-weight:900;
   font-size:clamp(20px,3.2vw,34px);
   color:#fff;
@@ -1161,7 +1161,7 @@ input.hidden-file{display:none;}
   border:1px solid var(--crimson);
   color:#fff;font-weight:700;
   padding:9px 22px;
-  font-family:'Cinzel',serif;font-size:9px;letter-spacing:3px;text-transform:uppercase;
+  font-family:'Inter','Cairo',sans-serif;font-size:9px;letter-spacing:3px;text-transform:uppercase;
   cursor:pointer;transition:all .3s;
 }
 .cover-upload-btn:hover{background:rgba(139,0,0,.6);border-color:var(--crimson);}
@@ -1266,7 +1266,7 @@ input.hidden-file{display:none;}
 .modal-field input, .modal-field textarea{
   width:100%;background:var(--smoke);border:1px solid var(--border);
   color:var(--white);padding:8px 12px;
-  font-family:'Cinzel',serif;font-size:9px;letter-spacing:1px;
+  font-family:'Inter','Cairo',sans-serif;font-size:9px;letter-spacing:1px;
   outline:none;resize:none;
 }
 .modal-field input:focus, .modal-field textarea:focus{border-color:var(--blood);}
@@ -1274,7 +1274,7 @@ input.hidden-file{display:none;}
 .modal-btn{
   background:none;border:1px solid var(--smoke);
   color:var(--ash);padding:7px 18px;
-  font-family:'Cinzel',serif;font-size:8px;letter-spacing:2px;
+  font-family:'Inter','Cairo',sans-serif;font-size:8px;letter-spacing:2px;
   text-transform:uppercase;cursor:pointer;transition:all .25s;
 }
 .modal-btn:hover{border-color:var(--ash);color:var(--white);}
@@ -1301,7 +1301,7 @@ input.hidden-file{display:none;}
 .confirm-btn{
   flex:1;background:none;border:1px solid var(--smoke);
   color:var(--ash);padding:8px;
-  font-family:'Cinzel',serif;font-size:8px;letter-spacing:2px;
+  font-family:'Inter','Cairo',sans-serif;font-size:8px;letter-spacing:2px;
   text-transform:uppercase;cursor:pointer;transition:all .25s;
 }
 .confirm-btn.danger-btn{
@@ -1376,7 +1376,7 @@ input.hidden-file{display:none;}
   display:flex;align-items:center;justify-content:center;gap:8px;
   background:rgba(139,0,0,.1);border:1px dashed var(--blood);
   color:var(--blood);padding:14px;
-  font-family:'Cinzel',serif;font-size:9px;letter-spacing:2px;
+  font-family:'Inter','Cairo',sans-serif;font-size:9px;letter-spacing:2px;
   text-transform:uppercase;cursor:pointer;transition:all .3s;
 }
 .pm-upload-label:hover{background:rgba(139,0,0,.25);}
@@ -1586,7 +1586,7 @@ input.hidden-file{display:none;}
   background: rgba(6,6,6,.92);
   border: 1px solid var(--blood);
   color: var(--white);
-  font-family: 'Cinzel', serif;
+  font-family: 'Inter', serif;
   font-size: 7px;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -1622,7 +1622,7 @@ input.hidden-file{display:none;}
   border: 1px solid var(--blood);
   color: var(--blood);
   padding: 6px 13px;
-  font-family: 'Cinzel', serif;
+  font-family: 'Inter', serif;
   font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
   cursor: pointer; transition: all .3s;
 }
@@ -1726,7 +1726,7 @@ input.hidden-file{display:none;}
 .av-field input[type=text] {
   width: 100%; background: var(--smoke); border: 1px solid var(--border);
   color: var(--white); padding: 8px 10px;
-  font-family: 'Cinzel', serif; font-size: 9px; outline: none;
+  font-family: 'Inter', serif; font-size: 9px; outline: none;
 }
 .av-field input[type=text]:focus { border-color: var(--blood); }
 .av-or { text-align: center; font-size: 8px; color: var(--ash); letter-spacing: 3px; margin: 10px 0; text-transform: uppercase; }
@@ -1734,14 +1734,14 @@ input.hidden-file{display:none;}
   display: flex; align-items: center; justify-content: center; gap: 8px;
   background: rgba(139,0,0,.1); border: 1px dashed var(--blood);
   color: var(--blood); padding: 12px;
-  font-family: 'Cinzel', serif; font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+  font-family: 'Inter', serif; font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
   cursor: pointer; transition: all .3s;
 }
 .av-upload-label:hover { background: rgba(139,0,0,.22); }
 .av-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; }
 .av-btn {
   background: none; border: 1px solid var(--smoke); color: var(--ash);
-  padding: 7px 16px; font-family: 'Cinzel', serif; font-size: 8px;
+  padding: 7px 16px; font-family: 'Inter', serif; font-size: 8px;
   letter-spacing: 2px; text-transform: uppercase; cursor: pointer;
 }
 .av-btn:hover { border-color: var(--ash); color: var(--white); }
@@ -1780,7 +1780,7 @@ input.hidden-file{display:none;}
   display: block;
 }
 .gate-title {
-  font-family: 'Cinzel Decorative', cursive;
+  font-family: 'Inter', cursive;
   font-size: 18px; letter-spacing: 4px;
   color: var(--white); margin-bottom: 14px;
   text-shadow: 0 0 30px rgba(139,0,0,.5);
@@ -1805,14 +1805,14 @@ input.hidden-file{display:none;}
   border: 1px solid var(--blood);
   color: var(--blood);
   padding: 11px 28px;
-  font-family: 'Cinzel', serif;
+  font-family: 'Inter', serif;
   font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
   cursor: pointer; transition: all .3s;
   text-decoration: none;
 }
 .gate-btn:hover { background: var(--blood); color: var(--white); }
 .gate-skull-logo {
-  font-family: 'Cinzel Decorative', cursive;
+  font-family: 'Inter', cursive;
   font-size: 13px; color: var(--blood);
   letter-spacing: 4px; margin-bottom: 32px;
   opacity: .7;
@@ -1911,12 +1911,12 @@ input.hidden-file{display:none;}
   font-size: 28px; opacity: .6;
   transform: translate(-50%, -50%);
   color: var(--blood);
-  font-family: 'Cinzel Decorative', cursive;
+  font-family: 'Inter', cursive;
 }
 
 /* Granted text */
 .granted-label {
-  font-family: 'Cinzel Decorative', cursive;
+  font-family: 'Inter', cursive;
   font-size: clamp(18px, 4vw, 28px);
   letter-spacing: 8px;
   color: var(--gold-light);
@@ -2008,15 +2008,26 @@ input.hidden-file{display:none;}
   line-height: 1;
 }
 </style>
+<style id="theme-override">
+:root{
+  --blood:#d92d43; --crimson:#ea4259;
+  --dark:#0b0c0f; --panel:#121318; --panel2:#181a21; --panel3:#1f222b;
+  --border:rgba(255,255,255,.08); --ash:#8b8e99; --smoke:#2a2d36; --white:#ededf0;
+  --gold:#d9a441; --gold-light:#f0b90b;
+}
+body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
+.topbar{background:rgba(11,12,15,.92);border-bottom:1px solid var(--border)}
+.gate-skull-logo,.topbar-logo{font-family:'Playfair Display',serif;letter-spacing:0}
+</style>
 </head>
 <body>
 
 <!-- ACCESS GATE — shown until auth + purchase verified -->
 <div id="accessGate" style="display:none;">
-  <div class="gate-skull-logo">☠ How To Rebirth</div>
+  <div class="gate-skull-logo">How To Rebirth</div>
   <div class="gate-box">
     <div id="gateMsg">
-      <div class="gate-icon" style="animation:spinSlow 2s linear infinite;">☠</div>
+      <div class="gate-icon" style="animation:spinSlow 2s linear infinite;">✦</div>
       <div class="gate-sub" style="letter-spacing:3px;">Verifying your access…</div>
     </div>
   </div>
@@ -2031,16 +2042,16 @@ input.hidden-file{display:none;}
   </div>
   <div class="book-wrap" id="bookWrap" style="display:none;">
     <div class="book-cover-left" id="bookLeft">
-      <div class="book-symbol-left">☠</div>
+      <div class="book-symbol-left">✦</div>
     </div>
     <div class="book-spine"></div>
     <div class="book-cover-right" id="bookRight">
-      <div class="book-symbol-right">☠</div>
+      <div class="book-symbol-right">✦</div>
     </div>
     <div class="book-glow" id="bookGlow"></div>
   </div>
   <div class="granted-label" id="grantedLabel">Access Granted</div>
-  <div class="granted-sub" id="grantedSub">Welcome back, initiate. Your path awaits.</div>
+  <div class="granted-sub" id="grantedSub">Welcome back. Your book is ready.</div>
 </div>
 
 <!-- APP SHELL — hidden until access verified -->
@@ -2051,7 +2062,7 @@ input.hidden-file{display:none;}
 
 <!-- LOADING -->
 <div class="loading-overlay" id="loadingOverlay">
-  <div class="loading-skull">☠</div>
+  <div class="loading-skull">✦</div>
   <div class="loading-bar-wrap"><div class="loading-bar" id="loadingBar"></div></div>
   <div class="loading-txt" id="loadingTxt">Loading PDF...</div>
 </div>
@@ -2059,7 +2070,7 @@ input.hidden-file{display:none;}
 <!-- TOPBAR -->
 <div class="topbar">
   <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMobileSidebar()" title="Chapters">☰</button>
-  <button class="topbar-btn" onclick="window.location.href='index.html'" title="Back to Home" style="gap:6px;flex-shrink:0;">← Back</button>
+  <button class="topbar-btn" onclick="window.location.href='/'" title="Back to Home" style="gap:6px;flex-shrink:0;">← Back</button>
   <div class="topbar-divider"></div>
   <div class="course-title-bar" id="courseTitle">How To Rebirth — Course Viewer</div>
   <div class="topbar-right">
@@ -2076,13 +2087,13 @@ input.hidden-file{display:none;}
   <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="sidebar-head">
-      <h3>☠ Chapters</h3>
+      <h3>Chapters</h3>
       <button class="add-chapter-btn admin-only" onclick="openAddChapterModal()">+ Add</button>
     </div>
     <div class="sidebar-inner" id="sidebarInner">
       <!-- HOME / COVER button -->
       <button class="home-btn active" id="homeBtn" onclick="goHome()">
-        <div class="home-icon">☠</div>
+        <div class="home-icon">✦</div>
         <div class="home-label">Cover</div>
       </button>
       <div id="chapterList"></div>
@@ -2118,7 +2129,7 @@ input.hidden-file{display:none;}
         <img class="cover-bg-img" id="coverBgImg" src="" alt="">
         <div class="cover-vignette"></div>
         <div class="cover-content">
-          <div class="cover-skull">☠</div>
+          <div class="cover-skull">✦</div>
           <div class="cover-title" id="coverTitle">How To Rebirth</div>
           <div class="cover-sub">Select a Chapter to Begin</div>
           <div class="cover-hint">Choose a chapter from the sidebar to open your course</div>
@@ -2137,16 +2148,16 @@ input.hidden-file{display:none;}
           </div>
 
           <div class="cover-upload-area admin-only" id="coverUploadArea">
-            <label class="cover-upload-btn" for="coverImgInput">☠ Set Cover Image</label>
+            <label class="cover-upload-btn" for="coverImgInput">Set Cover Image</label>
             <input type="file" id="coverImgInput" accept="image/*" style="display:none" onchange="handleCoverImageUpload(event)">
             <div class="cover-upload-label">Upload a custom background image</div>
-            <button id="removeCoverBtn" onclick="handleRemoveCoverImage()" style="display:none;background:rgba(192,57,43,.15);border:1px solid var(--danger);color:var(--danger);padding:7px 18px;font-family:'Cinzel',serif;font-size:8px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;margin-top:4px;transition:all .25s;">✕ Remove Cover Image</button>
+            <button id="removeCoverBtn" onclick="handleRemoveCoverImage()" style="display:none;background:rgba(192,57,43,.15);border:1px solid var(--danger);color:var(--danger);padding:7px 18px;font-family:'Inter','Cairo',sans-serif;font-size:8px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;margin-top:4px;transition:all .25s;">✕ Remove Cover Image</button>
           </div>
         </div>
       </div>
       <!-- DROP ZONE (hidden, kept for compat) -->
       <div class="drop-zone" id="dropZone" style="display:none;">
-        <div class="drop-icon">☠</div>
+        <div class="drop-icon">✦</div>
         <div class="drop-text">No PDF loaded</div>
         <div class="drop-sub">Select a chapter from the sidebar<br>and attach a PDF to it via "📂 Attach PDFs button"</div>
       </div>
@@ -2165,7 +2176,7 @@ input.hidden-file{display:none;}
 <div class="pdf-manager" id="pdfManager" onclick="if(event.target===this)closePdfManager()">
   <div class="pdf-manager-box">
     <div class="pdf-manager-head">
-      <div class="pdf-manager-title">☠ PDF Library</div>
+      <div class="pdf-manager-title">PDF Library</div>
       <button class="pdf-manager-close" onclick="closePdfManager()">✕</button>
     </div>
     <div class="pdf-manager-body" id="pdfManagerBody">
@@ -2173,7 +2184,7 @@ input.hidden-file{display:none;}
     </div>
     <div class="pdf-manager-upload admin-only">
       <label class="pm-upload-label" for="globalPdfUpload">
-        ☠ Upload New PDF
+        Upload New PDF
       </label>
       <input type="file" id="globalPdfUpload" accept=".pdf" multiple style="display:none" onchange="handleGlobalPdfUpload(event)">
     </div>
@@ -2243,7 +2254,7 @@ input.hidden-file{display:none;}
       </div>
       <div class="av-or">— or —</div>
       <div class="av-field">
-        <label class="av-upload-label" for="avFileInput">☠ Upload Video File (MP4, WebM…)</label>
+        <label class="av-upload-label" for="avFileInput">Upload Video File (MP4, WebM…)</label>
         <input type="file" id="avFileInput" accept="video/*" style="display:none;">
         <div class="av-progress" id="avProgress"><div class="av-progress-fill" id="avProgressFill"></div></div>
         <div id="avFileName" style="font-size:8px;color:var(--gold);letter-spacing:2px;margin-top:6px;"></div>
@@ -2730,7 +2741,7 @@ function buildSidebar() {
 
   if (!visibleChapters.length) {
     list.innerHTML = `<div style="padding:28px 18px;text-align:center;">
-      <div style="font-size:28px;opacity:.1;margin-bottom:10px;">☠</div>
+      <div style="font-size:28px;opacity:.1;margin-bottom:10px;">✦</div>
       <p style="font-size:8px;letter-spacing:3px;color:var(--smoke);text-transform:uppercase;line-height:2;">${window.IS_ADMIN ? 'No chapters yet.<br>Click + Add to create one.' : 'No chapters available yet.'}</p>
     </div>`;
     return;
@@ -3086,7 +3097,7 @@ function renderPdfManager() {
 
   if (!keys.length) {
     body.innerHTML = heading + `<div class="pdf-manager-empty">
-      No PDFs uploaded yet.<br><strong>Drag & drop or click to upload ☠</strong>
+      No PDFs uploaded yet.<br><strong>Drag & drop or click to upload ✦</strong>
     </div>`;
     return;
   }
