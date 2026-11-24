@@ -18,7 +18,7 @@ export default function Footer() {
           <Link to="/privacy">{t('footer.privacy')}</Link>
         </nav>
       </div>
-      <div className="container footer-copy">© {new Date().getFullYear()} A. {t('footer.rights')}</div>
+      <div className="container footer-copy">© {new Date().getFullYear()} Mr Skull. {t('footer.rights')}</div>
     </footer>
   );
 }

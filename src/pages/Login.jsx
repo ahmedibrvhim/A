@@ -190,7 +190,7 @@ export default function Login() {
         <div className="auth-head">
           <img src="/Skull.png" alt="" className="auth-logo" />
           <div>
-            <div className="auth-title">A</div>
+            <div className="auth-title">Mr Skull</div>
             <div className="muted small">{t('login.portal')}</div>
           </div>
         </div>
