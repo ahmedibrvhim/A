@@ -1,34 +1,56 @@
-// ══════════════════════════════════════════════════════
-//  BRAND A — Firestore Security Rules
-//  Go to: Firebase Console → Firestore → Rules tab
-//  Delete everything there and paste this, then Publish
-// ══════════════════════════════════════════════════════
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── USERS collection ──
-    // Each user can only read/write their own profile
+    // Admin check: case-insensitive email compare, works for Google & email/password
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == 'amedsaad036@gmail.com';
+    }
+    function signedIn() { return request.auth != null; }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
-    // ── ORDERS collection ──
-    // Anyone logged in can CREATE an order (for checkout)
-    // Only the admin email can READ ALL orders (for dashboard)
-    // Users can read their own orders only
     match /orders/{orderId} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null && (
-        request.auth.token.email == 'amedsaad036@gmail.com' ||
-        resource.data.userId == request.auth.uid
-      );
-      allow update: if request.auth != null &&
-        request.auth.token.email == 'amedsaad036@gmail.com';
-      allow delete: if request.auth != null &&
-        request.auth.token.email == 'amedsaad036@gmail.com';
+      allow create: if signedIn();
+      allow get, list: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
     }
 
+    match /driveFiles/{fileKey} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /siteStats/{doc} {
+      allow read, write: if true;
+    }
+
+    match /ratings/{docId} {
+      allow read: if true;
+      allow create, update: if signedIn() && (docId == request.auth.uid || docId == '_aggregate');
+      allow delete: if isAdmin();
+    }
+
+    match /appState/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /blockedUsers/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /screenshotStrikes/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.count >= resource.data.count;
+      allow delete: if isAdmin();
+    }
   }
 }
