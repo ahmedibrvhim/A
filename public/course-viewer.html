@@ -3420,42 +3420,74 @@ async function confirmDeletePdf(key) {
 // Uses API key for public files (viewers), falls back to OAuth token for admin.
 async function loadPdfFromDriveId(fileId) {
   showLoading('Loading PDF…');
-  try {
-    let res;
+  const failures = [];
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // Try with API key first (no sign-in needed, works for public files)
-    if (DRIVE_API_KEY) {
-      res = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${DRIVE_API_KEY}`
-      );
+  // Try one URL; returns an ArrayBuffer only if it is really a PDF.
+  async function attempt(label, url, headers) {
+    for (let i = 0; i < 2; i++) {            // one retry on rate-limit / server errors
+      try {
+        const res = await fetch(url, headers ? { headers } : undefined);
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          const head = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(1024, buf.byteLength)));
+          if (head.includes('%PDF')) return buf;
+          failures.push(label + ': Drive sent a web page instead of the PDF');
+          return null;
+        }
+        let reason = '';
+        try {
+          const j = await res.json();
+          reason = j?.error?.errors?.[0]?.reason || j?.error?.message || '';
+        } catch (e) {}
+        failures.push(label + ': HTTP ' + res.status + (reason ? ' (' + reason + ')' : ''));
+        if (res.status === 429 || res.status >= 500) { await sleep(1200); continue; }
+        return null;
+      } catch (e) {
+        failures.push(label + ': network/CORS blocked');
+        return null;
+      }
     }
+    return null;
+  }
 
-    // If no API key or it failed, try with OAuth token (admin already signed in)
-    if (!res || !res.ok) {
-      if (_driveAccessToken) {
-        res = await fetch(
-          `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-          { headers: { Authorization: 'Bearer ' + _driveAccessToken } }
-        );
+  try {
+    let buf = null;
+
+    // 1. API key (public files, no sign-in)
+    if (DRIVE_API_KEY) {
+      buf = await attempt('API key',
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true&key=${DRIVE_API_KEY}`);
+    }
+    // 2. Drive's direct download host (separate quota from the API)
+    if (!buf) {
+      buf = await attempt('direct download',
+        `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`);
+    }
+    // 3. Admin token, if already signed in
+    if (!buf && _driveAccessToken) {
+      buf = await attempt('signed-in token',
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
+        { Authorization: 'Bearer ' + _driveAccessToken });
+    }
+    // 4. Last resort: ask for sign-in
+    if (!buf) {
+      try {
+        const token = await loadDriveAuth();
+        buf = await attempt('sign-in',
+          `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
+          { Authorization: 'Bearer ' + token });
+      } catch (e) {
+        failures.push('sign-in: ' + e.message);
       }
     }
 
-    // Last resort: prompt sign-in (only hits if no API key and not signed in)
-    if (!res || !res.ok) {
-      const token = await loadDriveAuth();
-      res = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-    }
-
-    if (!res.ok) throw new Error('Drive fetch failed: ' + res.status);
-    const buf = await res.arrayBuffer();
+    if (!buf) throw new Error(failures.join(' | '));
     _loadPdfFromBuffer(buf);
   } catch(err) {
     hideLoading();
-    showToast('⚠ Could not load PDF: ' + err.message);
-    console.error(err);
+    showToast('⚠ Could not load PDF — ' + err.message);
+    console.error('[pdf] fileId=' + fileId, err);
   }
 }
 
@@ -3476,7 +3508,7 @@ function _loadPdfFromBuffer(buf) {
     _onPdfLoaded(pdf);
   }).catch(err => {
     hideLoading();
-    showToast('Error rendering PDF');
+    showToast('Error rendering PDF: ' + (err && err.message || err));
     console.error(err);
   });
 }
