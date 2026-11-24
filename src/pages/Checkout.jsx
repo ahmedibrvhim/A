@@ -27,7 +27,7 @@ export default function Checkout() {
   bannerRef.current = banner;
 
   const isBn = method === 'binance';
-  const locked = banner && banner.status === 'pending';
+  const locked = !!banner; // pending or confirmed order => checkout closed (single-course store)
 
   // auth guard
   useEffect(() => {
@@ -45,7 +45,6 @@ export default function Checkout() {
   // watch the user's active order in real time
   useEffect(() => {
     if (!user) return;
-    let timer;
     const q = query(
       collection(db, 'orders'),
       where('userId', '==', user.uid),
@@ -55,28 +54,13 @@ export default function Checkout() {
       if (!snap.empty) {
         const d = snap.docs[0];
         const order = { id: d.id, ...d.data() };
-        if (order.status === 'confirmed') {
-          const key = 'confirmedShown_' + order.id;
-          if (localStorage.getItem(key)) {
-            setBanner(null);
-          } else {
-            localStorage.setItem(key, '1');
-            setBanner(order);
-            clearTimeout(timer);
-            timer = setTimeout(() => {
-              setBanner(null);
-              toast(t('checkout.t.confirmed'), 'success');
-            }, 3000);
-          }
-        } else {
-          setBanner(order);
-        }
+        setBanner(order); // pending OR confirmed keeps the checkout locked
       } else {
-        if (bannerRef.current?.status === 'pending') toast(t('checkout.t.cancelled'));
+        if (bannerRef.current) toast(t('checkout.t.cancelled'));
         setBanner(null);
       }
     }, () => {});
-    return () => { unsub(); clearTimeout(timer); };
+    return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -91,6 +75,7 @@ export default function Checkout() {
 
   const submit = async () => {
     const name = form.name.trim(), phone = form.phone.trim(), city = form.city.trim(), notes = form.notes.trim();
+    if (banner) return toast(t('checkout.t.locked'), 'error');
     if (!name || !phone || !city) return toast(t('checkout.t.fill'), 'error');
     if (!items.length) return toast(t('checkout.t.empty'), 'error');
     setSubmitting(true);
@@ -106,7 +91,6 @@ export default function Checkout() {
         userId: user?.uid || 'guest',
         userEmail: user?.email || 'guest',
       });
-      Object.keys(localStorage).filter((k) => k.startsWith('confirmedShown_')).forEach((k) => localStorage.removeItem(k));
       clear();
       setMethod('vodafone');
       toast(t('checkout.t.placed'), 'success');
