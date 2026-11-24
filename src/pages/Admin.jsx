@@ -74,6 +74,13 @@ export default function Admin() {
   const fail = (e) => { console.error('[admin]', e); toast(t('admin.error', { msg: `${e.code || ''} ${e.message}`.trim() }), 'error'); };
 
   const deleteOrder = (id) => setConfirmId(id);               // opens in-page confirm (no window.confirm)
+  const cancelOrder = async (o) => {
+    setBusy(o.id);
+    try {
+      await withTimeout(updateDoc(doc(db, 'orders', o.id), { status: 'cancelled', updatedAt: serverTimestamp() }));
+      toast(t('admin.t.updated', { s: t('status.cancelled').toUpperCase() }), 'success');
+    } catch (e) { fail(e); } finally { setBusy(null); }
+  };
   const doDelete = async () => {
     const id = confirmId; setConfirmId(null); setBusy(id);
     try { await withTimeout(deleteDoc(doc(db, 'orders', id))); toast(t('admin.t.deleted'), 'success'); if (detailId === id) setDetailId(null); }
@@ -81,7 +88,6 @@ export default function Admin() {
   };
   const applyStatus = async (o) => {
     const s = statusDraft[o.id] ?? o.status ?? 'pending';
-    if (s === 'cancelled') return setConfirmId(o.id);
     setBusy(o.id);
     try {
       await withTimeout(updateDoc(doc(db, 'orders', o.id), { status: s, updatedAt: serverTimestamp() }));
@@ -175,11 +181,16 @@ export default function Admin() {
                           <td className="muted small" data-label={t('admin.col.date')}>{fmtDate(o.createdAt, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, locale) || t('common.na')}</td>
                           <td data-label={t('admin.col.status')}>{StatusBadge({ s: o.status })}</td>
                           <td className="actions" data-label={t('admin.col.actions')}>
-                            {o.status === 'cancelled' ? <span className="muted small">{t('admin.cancelledNote')}</span> : (
+                            {o.status === 'cancelled' ? (
+                              <>
+                                <span className="muted small">{t('admin.cancelledNote')}</span>
+                                <button className="btn btn-danger btn-sm" disabled={busy === o.id} onClick={() => deleteOrder(o.id)}>🗑</button>
+                              </>
+                            ) : (
                               <>
                                 {StatusSelect({ o })}
                                 <button className="btn btn-primary btn-sm" disabled={busy === o.id} onClick={() => applyStatus(o)}>{t('admin.update')}</button>
-                                <button className="btn btn-danger btn-sm" disabled={busy === o.id} onClick={() => deleteOrder(o.id)}>{t('admin.cancelOrder')}</button>
+                                <button className="btn btn-danger btn-sm" disabled={busy === o.id} onClick={() => cancelOrder(o)}>{t('admin.cancelOrder')}</button>
                               </>
                             )}
                           </td>
@@ -250,7 +261,7 @@ export default function Admin() {
                   <div className="row gap">
                     {StatusSelect({ o: detail })}
                     <button className="btn btn-primary btn-sm" disabled={busy === detail.id} onClick={() => applyStatus(detail)}>{t('admin.update')}</button>
-                    <button className="btn btn-danger btn-sm" disabled={busy === detail.id} onClick={() => deleteOrder(detail.id)}>{t('admin.cancelOrder')}</button>
+                    <button className="btn btn-danger btn-sm" disabled={busy === detail.id} onClick={() => { cancelOrder(detail); setDetailId(null); }}>{t('admin.cancelOrder')}</button>
                   </div>
                 </div>
               )}
