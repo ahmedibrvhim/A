@@ -1402,6 +1402,23 @@ input.hidden-file{display:none;}
 }
 .toast.show{opacity:1;transform:translateX(calc(-50% + var(--sidebar-w)/2)) translateY(0);}
 
+/* ── Pinch-zoom lock + hint ── */
+html,body,.canvas-wrap{touch-action:pan-x pan-y;}
+.pinch-alert{
+  position:fixed;left:50%;top:max(16px,env(safe-area-inset-top));
+  transform:translate(-50%,-14px);
+  width:min(92vw,380px);padding:12px 16px;
+  background:var(--panel);border:1px solid var(--blood);
+  box-shadow:0 0 30px rgba(139,0,0,.45);
+  color:var(--white);font-size:13px;line-height:1.6;text-align:center;
+  opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;z-index:900;
+}
+.pinch-alert.show{opacity:1;transform:translate(-50%,0);}
+.pinch-alert b{color:#dc143c;}
+.pinch-alert .ar{display:block;margin-top:4px;font-family:'Cairo',sans-serif;direction:rtl;}
+@keyframes zoomHint{0%,100%{box-shadow:0 0 0 0 rgba(220,20,60,0);}50%{box-shadow:0 0 0 4px rgba(220,20,60,.7);}}
+.zoom-hint{animation:zoomHint .7s ease-in-out 3;border-color:#dc143c !important;}
+
 /* ══ LOADING ══ */
 .loading-overlay{
   position:fixed;inset:0;background:rgba(6,6,6,.96);
@@ -2018,6 +2035,54 @@ input.hidden-file{display:none;}
 body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
 .topbar{background:rgba(11,12,15,.92);border-bottom:1px solid var(--border)}
 .gate-skull-logo,.topbar-logo{font-family:'Playfair Display',serif;letter-spacing:0}
+
+/* ══ Topbar + controls restructure ══ */
+.topbar-right{flex-shrink:0;}
+.admin-tools{position:relative;display:flex;align-items:center;gap:10px;}
+.admin-toggle{display:none;}
+.admin-menu{display:flex;align-items:center;gap:10px;}
+.vc-group{display:flex;align-items:center;gap:8px;}
+#adminMenu .add-vid-btn{white-space:nowrap;font-size:9px;letter-spacing:1.5px;}
+@media(max-width:768px){
+  .topbar{gap:6px;}
+  .course-title-bar{flex:1 1 auto;min-width:0;max-width:none;}
+  .topbar-right{margin-left:auto;gap:6px;}
+  .topbar-btn{white-space:nowrap;flex-shrink:0;}
+  .page-indicator{font-size:8px;letter-spacing:1px;}
+  .fullscreen-btn{width:32px;height:32px;flex-shrink:0;}
+
+  /* admin tools collapse into a dropdown */
+  .admin-toggle{display:flex;height:32px;padding:0 10px;gap:5px;font-size:9px;letter-spacing:1px;}
+  .admin-toggle[aria-expanded="true"]{background:var(--blood);color:#fff;}
+  .admin-menu{
+    display:none;position:fixed;
+    top:calc(var(--topbar-h) + 6px);
+    right:max(10px, env(safe-area-inset-right));
+    width:min(260px, calc(100vw - 20px));
+    flex-direction:column;align-items:stretch;gap:8px;
+    padding:10px;background:var(--panel);
+    border:1px solid var(--blood);box-shadow:0 12px 40px rgba(0,0,0,.7),0 0 24px rgba(139,0,0,.35);
+    z-index:210;
+  }
+  .admin-menu.open{display:flex;}
+  #adminMenu .add-vid-btn{justify-content:center;width:100%;padding:13px 12px;font-size:10px;white-space:normal;text-align:center;}
+
+  /* viewer controls: tidy centred rows, groups wrap as units */
+  .viewer-controls{justify-content:center;gap:8px 12px;padding:8px 10px;}
+  .viewer-controls .ctrl-sep{display:none;}
+  .vc-group{gap:6px;}
+  .ctrl-btn{padding:8px 12px;font-size:9px;min-height:34px;}
+  .zoom-val{min-width:44px;font-size:10px;}
+  .page-jump{margin-left:0;flex:0 0 auto;}
+  .page-jump span{display:none;}
+  .page-jump input{width:52px;padding:7px 6px;font-size:11px;}
+}
+@media(max-width:480px){
+  .course-title-bar{display:none;}
+  .at-label{display:none;}
+  .topbar-btn{padding:6px 9px;}
+  .admin-toggle{padding:0 9px;font-size:13px;}
+}
 </style>
 </head>
 <body>
@@ -2074,9 +2139,14 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
   <div class="topbar-divider"></div>
   <div class="course-title-bar" id="courseTitle">How To Rebirth — Course Viewer</div>
   <div class="topbar-right">
-    <button class="add-vid-btn admin-only" id="addVidModeBtn" onclick="toggleAddVideoMode()">▶ Add Video</button>
-    <button class="add-vid-btn admin-only" id="warmUpAllBtn" onclick="warmUpAllVideos()" title="Ping Drive to start transcoding all uploaded videos so they load faster for students" style="font-size:10px;letter-spacing:1.5px;">⚙ Warm Up All Videos</button>
     <div class="page-indicator" id="topPageIndicator">— / —</div>
+    <div class="admin-tools admin-only" id="adminTools">
+      <button class="topbar-btn admin-toggle" id="adminToggleBtn" onclick="toggleAdminMenu(event)" aria-haspopup="true" aria-expanded="false" title="Admin tools">⚙<span class="at-label">Admin</span><span class="at-caret">▾</span></button>
+      <div class="admin-menu" id="adminMenu">
+        <button class="add-vid-btn admin-only" id="addVidModeBtn" onclick="toggleAddVideoMode();closeAdminMenu()">▶ Add Video</button>
+        <button class="add-vid-btn admin-only" id="warmUpAllBtn" onclick="warmUpAllVideos();closeAdminMenu()" title="Ping Drive to start transcoding all uploaded videos so they load faster for students">⚙ Warm Up All Videos</button>
+      </div>
+    </div>
     <button class="fullscreen-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
   </div>
 </div>
@@ -2103,15 +2173,21 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
   <!-- PDF VIEWER -->
   <div class="viewer-area" id="viewerArea">
     <div class="viewer-controls" id="viewerControls" style="display:none;">
-      <button class="ctrl-btn" onclick="prevPage()">◀ Prev</button>
-      <button class="ctrl-btn" onclick="nextPage()">Next ▶</button>
+      <div class="vc-group">
+        <button class="ctrl-btn" onclick="prevPage()">◀ Prev</button>
+        <button class="ctrl-btn" onclick="nextPage()">Next ▶</button>
+      </div>
       <div class="ctrl-sep"></div>
-      <button class="ctrl-btn" onclick="zoom(-0.25)">−</button>
-      <div class="zoom-val" id="zoomVal">100%</div>
-      <button class="ctrl-btn" id="zoomInBtn" onclick="zoom(0.25)">+</button>
+      <div class="vc-group">
+        <button class="ctrl-btn" onclick="zoom(-0.25)">−</button>
+        <div class="zoom-val" id="zoomVal">100%</div>
+        <button class="ctrl-btn" id="zoomInBtn" onclick="zoom(0.25)">+</button>
+      </div>
       <div class="ctrl-sep"></div>
-      <button class="ctrl-btn active" id="btnSingle" onclick="setViewMode('single')">Single</button>
-      <button class="ctrl-btn" id="btnAll" onclick="setViewMode('all')">All Pages</button>
+      <div class="vc-group">
+        <button class="ctrl-btn active" id="btnSingle" onclick="setViewMode('single')">Single</button>
+        <button class="ctrl-btn" id="btnAll" onclick="setViewMode('all')">All Pages</button>
+      </div>
       <div class="ctrl-sep"></div>
       <div id="langToggleWrap">
         <button class="lang-tab active" id="langTabAr" onclick="switchLang('ar')">AR</button>
@@ -2119,7 +2195,7 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
       </div>
       <div class="page-jump">
         <span>Go to page</span>
-        <input type="number" id="pageJumpInput" min="1" onkeydown="if(event.key==='Enter')jumpToPage()">
+        <input type="number" id="pageJumpInput" min="1" inputmode="numeric" onkeydown="if(event.key==='Enter')jumpToPage()">
         <button class="ctrl-btn" onclick="jumpToPage()">Go</button>
       </div>
     </div>
@@ -2224,6 +2300,7 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+<div class="pinch-alert" id="pinchAlert" role="alert" aria-live="assertive">Pinch-to-zoom is disabled. Use the <b>+</b> / <b>−</b> zoom buttons instead.<span class="ar">التكبير بالأصابع غير مفعّل. استخدم أزرار التكبير <b>+</b> / <b>−</b>.</span></div>
 
 <!-- VIDEO PLAYER MODAL -->
 <div class="vid-modal-overlay" id="vidPlayerModal">
@@ -3481,7 +3558,43 @@ function zoom(delta) {
   if (pdfDoc) renderCurrentView();
 }
 
-// ══ PINCH-TO-ZOOM removed — use + / - buttons to zoom ══
+// ══ PINCH-TO-ZOOM blocked — show hint pointing to the + / - buttons ══
+(function blockPinchZoom() {
+  let lastShown = 0;
+  function hint() {
+    const now = Date.now();
+    if (now - lastShown < 4000) return;          // don't spam while fingers stay down
+    lastShown = now;
+    const el = document.getElementById('pinchAlert');
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3500);
+    // pulse the zoom buttons so the user can find them
+    const plus = document.getElementById('zoomInBtn');
+    const minus = document.getElementById('zoomVal').previousElementSibling;
+    [plus, minus].forEach(b => {
+      if (!b) return;
+      b.classList.remove('zoom-hint'); void b.offsetWidth; b.classList.add('zoom-hint');
+      setTimeout(() => b.classList.remove('zoom-hint'), 2200);
+    });
+  }
+  const opt = { passive: false };
+  // iOS Safari ignores user-scalable=no — gesture events are how it pinches
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev =>
+    document.addEventListener(ev, e => { e.preventDefault(); if (ev === 'gesturestart') hint(); }, opt));
+  // Android / everything else: two or more fingers
+  document.addEventListener('touchstart', e => { if (e.touches.length > 1) hint(); }, opt);
+  document.addEventListener('touchmove', e => {
+    if (e.touches.length > 1) { if (e.cancelable) e.preventDefault(); hint(); }
+  }, opt);
+  // double-tap zoom
+  let lastTap = 0;
+  document.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (now - lastTap < 300 && e.cancelable && !e.target.closest('button,input,select,a,.vid-btn')) e.preventDefault();
+    lastTap = now;
+  }, opt);
+})();
 
 // ══ MOUSE DRAG-TO-PAN (desktop) ══
 (function initMousePan() {
@@ -3618,6 +3731,22 @@ function closeMobileSidebar() {
   document.querySelector('.sidebar').classList.remove('mobile-open');
   document.getElementById('sidebarOverlay').classList.remove('open');
 }
+
+// ══ ADMIN MENU (mobile dropdown) ══
+function toggleAdminMenu(e) {
+  if (e) e.stopPropagation();
+  const m = document.getElementById('adminMenu');
+  const open = m.classList.toggle('open');
+  document.getElementById('adminToggleBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function closeAdminMenu() {
+  const m = document.getElementById('adminMenu');
+  if (!m) return;
+  m.classList.remove('open');
+  document.getElementById('adminToggleBtn').setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', e => { if (!e.target.closest('#adminTools')) closeAdminMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAdminMenu(); });
 
 // ══ FULLSCREEN ══
 function toggleFullscreen() {
