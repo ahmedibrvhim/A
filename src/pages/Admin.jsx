@@ -150,22 +150,22 @@ export default function Admin() {
                     <tbody>
                       {visible.map((o) => (
                         <tr key={o.id}>
-                          <td>
+                          <td data-label={t('admin.col.id')}>
                             <code>{o.id.slice(0, 10).toUpperCase()}…</code>
                             <button className="link-btn block" onClick={() => setDetailId(o.id)}>{t('admin.details')}</button>
                           </td>
-                          <td>
+                          <td data-label={t('admin.col.customer')}>
                             <div className="strong">{o.customer?.name || '—'}</div>
                             <div className="muted small" dir="ltr">{o.customer?.phone || '—'}</div>
                             <div className="muted small">{o.userEmail}</div>
                             {o.customer?.city && <div className="muted small">{o.customer.city}</div>}
                           </td>
-                          <td>{(o.items || []).map((i) => <div key={i.name}>{i.name} <small className="muted">×{i.qty}</small></div>)}</td>
-                          <td><strong className={isBinance(o) ? 'gold' : ''}>{totalOf(o)}</strong></td>
-                          <td>{PayBadge({ o })}</td>
-                          <td className="muted small">{fmtDate(o.createdAt, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, locale) || t('common.na')}</td>
-                          <td>{StatusBadge({ s: o.status })}</td>
-                          <td className="actions">
+                          <td data-label={t('admin.col.items')}>{(o.items || []).map((i) => <div key={i.name}>{i.name} <small className="muted">×{i.qty}</small></div>)}</td>
+                          <td data-label={t('admin.col.total')}><strong className={isBinance(o) ? 'gold' : ''}>{totalOf(o)}</strong></td>
+                          <td data-label={t('admin.col.payment')}>{PayBadge({ o })}</td>
+                          <td className="muted small" data-label={t('admin.col.date')}>{fmtDate(o.createdAt, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, locale) || t('common.na')}</td>
+                          <td data-label={t('admin.col.status')}>{StatusBadge({ s: o.status })}</td>
+                          <td className="actions" data-label={t('admin.col.actions')}>
                             {o.status === 'cancelled' ? <span className="muted small">{t('admin.cancelledNote')}</span> : (
                               <>
                                 {StatusSelect({ o })}
