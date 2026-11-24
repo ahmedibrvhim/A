@@ -235,7 +235,7 @@ export default function Checkout() {
             <div className="row between">
               <span className="muted">{t('checkout.total')}</span>
               <span className={`total ${isBn ? 'gold' : ''}`}>
-                {items.length === 0 ? `0 ${t('courses.egp')}` : isBn ? usdtLabel : `${num(total)} ${t('courses.egp')}`}
+                {isBn ? (items.length === 0 ? `0 USDT` : usdtLabel) : `${num(items.length === 0 ? 0 : total)} ${t('courses.egp')}`}
               </span>
             </div>
             <p className="muted small">{isBn ? t('checkout.via.bn') : t('checkout.via.vf')}</p>
