@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Navbar from './Navbar.jsx';
-import Footer from './Footer.jsx';
 import CartDrawer from './CartDrawer.jsx';
 
 export default function Layout() {
@@ -11,7 +10,6 @@ export default function Layout() {
     <>
       <Navbar />
       <main className="page"><Outlet /></main>
-      <Footer />
       <CartDrawer />
     </>
   );

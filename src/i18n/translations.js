@@ -11,9 +11,6 @@ export const translations = {
     'nav.language': 'Language',
     'nav.admin': 'Admin',
 
-    'footer.tagline': 'Digital books and courses, delivered online.',
-    'footer.privacy': 'Privacy Policy',
-    'footer.rights': 'All rights reserved.',
 
     'home.eyebrow': 'Digital course',
     'home.title': 'How To Rebirth',
@@ -298,9 +295,6 @@ export const translations = {
     'nav.language': 'اللغة',
     'nav.admin': 'الإدارة',
 
-    'footer.tagline': 'كتب ودورات رقمية، تصلك أونلاين.',
-    'footer.privacy': 'سياسة الخصوصية',
-    'footer.rights': 'جميع الحقوق محفوظة.',
 
     'home.eyebrow': 'دورة رقمية',
     'home.title': 'How To Rebirth',

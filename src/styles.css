@@ -159,13 +159,6 @@ h1, h2, h3, h4 { line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
 }
 
 /* ── Footer ── */
-.footer { border-top: 1px solid var(--line); margin-top: 40px; padding-top: 44px; background: var(--surface); }
-.footer-inner { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; padding-bottom: 32px; }
-.footer-brand p { color: var(--muted); font-size: 0.9rem; margin-top: 14px; max-width: 300px; }
-.footer-links { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
-.footer-links a { color: var(--muted); font-size: 0.9rem; }
-.footer-links a:hover { color: var(--text); }
-.footer-copy { border-top: 1px solid var(--line); padding-block: 18px; color: var(--muted); font-size: 0.82rem; }
 
 /* ── Sections / headings ── */
 .section { padding-block: 72px; }
@@ -512,7 +505,6 @@ input:focus, .select:focus { border-color: #8b0000; box-shadow: 0 0 0 3px rgba(1
 .drawer { background: #050505; border-inline-start: 1px solid #8b0000; }
 .cart-row img, .summary-book img, .detail-item { border-radius: 0; }
 .stat strong { font-family: 'Cinzel Decorative', serif; }
-.footer { background: #030303; border-top: 1px solid #8b0000; }
 .table th { color: var(--bone); }
 .blocked-card { border-radius: 0; }
 .blocked-icon { border-radius: 0; }
