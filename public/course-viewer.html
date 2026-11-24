@@ -2084,6 +2084,97 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
   .admin-toggle{padding:0 9px;font-size:13px;}
 }
 </style>
+<style id="vp-style">
+/* ══ PROFESSIONAL VIDEO PLAYER ══ */
+.vid-modal-overlay{background:rgba(5,6,8,.88);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.vid-modal-box{background:#0b0c0f;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.65)}
+.vid-modal-head{gap:12px;padding:10px 10px 10px 18px;border-bottom:1px solid rgba(255,255,255,.07);background:#0f1014}
+.vid-modal-title{flex:1;min-width:0;font-size:15px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--white);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;unicode-bidi:plaintext;text-align:start}
+.vid-modal-close{flex-shrink:0;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.07);color:#cfd1d8;font-size:16px;padding:0;transition:background .2s,color .2s}
+.vid-modal-close:hover{background:rgba(255,255,255,.14);color:#fff}
+.vid-modal-body{background:#000}
+@media (max-width:600px){.vid-modal-box{border-radius:0;border:none}}
+
+.vp{position:relative;width:100%;height:100%;background:#000;overflow:hidden;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;font-family:'Inter','Cairo',system-ui,sans-serif;direction:ltr}
+.vp video{width:100%;height:100%;display:block;object-fit:contain;background:#000}
+.vp.hide-ui{cursor:none}
+.vp-shade{position:absolute;left:0;right:0;bottom:0;height:120px;pointer-events:none;
+  background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0));opacity:1;transition:opacity .25s}
+.vp-bar{position:absolute;left:0;right:0;bottom:0;padding:0 14px calc(10px + env(safe-area-inset-bottom,0px));transition:opacity .25s,transform .25s}
+.vp.hide-ui .vp-bar,.vp.hide-ui .vp-shade{opacity:0}
+.vp.hide-ui .vp-bar{transform:translateY(6px);pointer-events:none}
+
+.vp-seek{position:relative;height:30px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+.vp-track{position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.28);transition:height .15s}
+.vp-seek:hover .vp-track,.vp-seek.drag .vp-track{height:6px}
+.vp-buf,.vp-fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;width:0}
+.vp-buf{background:rgba(255,255,255,.35)}
+.vp-fill{background:var(--blood,#d92d43)}
+.vp-thumb{position:absolute;top:50%;left:0;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 6px rgba(0,0,0,.6);transform:scale(0);transition:transform .15s}
+.vp-seek:hover .vp-thumb,.vp-seek.drag .vp-thumb,.vp.touch .vp-thumb{transform:scale(1)}
+.vp-tip{position:absolute;bottom:26px;transform:translateX(-50%);padding:3px 8px;border-radius:6px;background:rgba(20,21,26,.95);
+  color:#fff;font-size:12px;font-variant-numeric:tabular-nums;pointer-events:none;opacity:0;transition:opacity .12s}
+.vp-seek:hover .vp-tip,.vp-seek.drag .vp-tip{opacity:1}
+
+.vp-row{display:flex;align-items:center;gap:2px;color:#fff}
+.vp-btn{flex-shrink:0;width:42px;height:42px;border:none;background:none;color:#fff;border-radius:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;opacity:.92;transition:background .15s,opacity .15s}
+.vp-btn:hover{background:rgba(255,255,255,.14);opacity:1}
+.vp-btn:focus-visible{outline:2px solid var(--blood,#d92d43);outline-offset:-2px}
+.vp-btn svg{width:24px;height:24px;fill:currentColor;display:block}
+.vp-time{font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;color:#e9eaee;margin:0 8px;white-space:nowrap}
+.vp-time i{font-style:normal;opacity:.55}
+.vp-gap{flex:1}
+.vp-speed{width:auto;min-width:46px;padding:0 10px;font-size:13px;font-weight:600;font-family:inherit}
+.vp-vol{display:flex;align-items:center}
+.vp-vol input{width:0;opacity:0;transition:width .2s,opacity .2s;accent-color:var(--blood,#d92d43);height:4px;cursor:pointer}
+.vp-vol:hover input,.vp-vol:focus-within input{width:76px;opacity:1;margin-right:8px}
+.vp-menu{position:absolute;right:14px;bottom:calc(62px + env(safe-area-inset-bottom,0px));background:rgba(18,19,24,.97);border:1px solid rgba(255,255,255,.1);
+  border-radius:12px;padding:6px;display:none;flex-direction:column;min-width:110px;box-shadow:0 12px 36px rgba(0,0,0,.6);z-index:5}
+.vp-menu.open{display:flex}
+.vp-menu button{background:none;border:none;color:#e4e5ea;font:500 14px inherit;font-family:inherit;text-align:left;padding:10px 14px;border-radius:8px;cursor:pointer;display:flex;justify-content:space-between;gap:16px}
+.vp-menu button:hover{background:rgba(255,255,255,.1)}
+.vp-menu button.on{color:#fff;font-weight:700}
+.vp-menu button.on::after{content:"✓";color:var(--blood,#d92d43)}
+
+.vp-big{position:absolute;top:50%;left:50%;width:68px;height:68px;margin:-34px 0 0 -34px;border:none;border-radius:50%;cursor:pointer;
+  background:rgba(15,16,20,.62);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:#fff;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 1px rgba(255,255,255,.14),0 10px 30px rgba(0,0,0,.5);transition:opacity .2s,transform .2s}
+.vp-big svg{width:30px;height:30px;fill:currentColor;margin-left:3px}
+.vp-big:hover{transform:scale(1.06)}
+.vp:not(.paused) .vp-big,.vp.loading .vp-big,.vp.error .vp-big{opacity:0;pointer-events:none}
+.vp-spin{position:absolute;top:50%;left:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;
+  border:3px solid rgba(255,255,255,.2);border-top-color:#fff;animation:vpspin .8s linear infinite;opacity:0;pointer-events:none}
+.vp.loading .vp-spin{opacity:1}
+@keyframes vpspin{to{transform:rotate(360deg)}}
+.vp-ripple{position:absolute;top:0;bottom:0;width:34%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;
+  color:#fff;font-size:13px;font-weight:600;background:rgba(255,255,255,.12);opacity:0;pointer-events:none;transition:opacity .25s}
+.vp-ripple.l{left:0;border-radius:0 60% 60% 0/0 50% 50% 0}.vp-ripple.r{right:0;border-radius:60% 0 0 60%/50% 0 0 50%}
+.vp-ripple.show{opacity:1}
+.vp-msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;color:#b9bcc6;font-size:14px;line-height:1.6}
+.vp.error .vp-msg{display:flex}
+.vp-load{height:100%;display:flex;align-items:center;justify-content:center;gap:12px;color:#9a9da8;font-size:14px;background:#000}
+.vp-load::before{content:"";width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.2);border-top-color:#fff;animation:vpspin .8s linear infinite}
+.vp-embed{position:relative;width:100%;height:100%}
+.vp-embed iframe{width:100%;height:100%;border:none;background:#000}
+.vp-shield{position:absolute;top:0;right:0;width:64px;height:64px;z-index:2}
+
+/* Video hotspot buttons on the PDF page */
+.vid-btn{width:44px;height:44px;background:rgba(217,45,67,.95);border:2px solid rgba(255,255,255,.9);
+  box-shadow:0 0 0 0 rgba(217,45,67,.5),0 6px 18px rgba(0,0,0,.55);animation:vbPulse 2.6s ease-out infinite}
+.vid-btn::before{content:"";width:0;height:0;border-style:solid;border-width:8px 0 8px 13px;border-color:transparent transparent transparent #fff;margin-left:3px}
+.vid-btn{font-size:0}
+.vid-btn:hover{background:#ea4259;transform:scale(1.1)}
+@keyframes vbPulse{0%{box-shadow:0 0 0 0 rgba(217,45,67,.55),0 6px 18px rgba(0,0,0,.55)}70%,100%{box-shadow:0 0 0 14px rgba(217,45,67,0),0 6px 18px rgba(0,0,0,.55)}}
+.vid-btn-label{bottom:52px;font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;padding:6px 12px;border-radius:8px;
+  background:rgba(18,19,24,.96);border:1px solid rgba(255,255,255,.12);color:#fff;max-width:240px;overflow:hidden;text-overflow:ellipsis;unicode-bidi:plaintext}
+.vid-btn:focus .vid-btn-label,.vid-btn:focus-visible .vid-btn-label{opacity:1}
+@media (max-width:600px){.vid-btn{width:40px;height:40px}.vid-btn-label{font-size:11px;bottom:46px}}
+</style>
 </head>
 <body>
 
@@ -2306,8 +2397,8 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
 <div class="vid-modal-overlay" id="vidPlayerModal">
   <div class="vid-modal-box">
     <div class="vid-modal-head">
-      <div class="vid-modal-title" id="vidPlayerTitle">▶ Video</div>
-      <button class="vid-modal-close" onclick="closeVidPlayer()">✕</button>
+      <div class="vid-modal-title" id="vidPlayerTitle" dir="auto">Video</div>
+      <button class="vid-modal-close" onclick="closeVidPlayer()" aria-label="Close video">✕</button>
     </div>
     <div class="vid-modal-body" id="vidPlayerBody"></div>
   </div>
@@ -4166,6 +4257,233 @@ function escHtml(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── CUSTOM VIDEO PLAYER UI ───────────────────────
+const VP_ICON = {
+  play:  '<svg viewBox="0 0 24 24"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.9-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><rect x="6" y="4.5" width="4.2" height="15" rx="1.2"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1.2"/></svg>',
+  back:  '<svg viewBox="0 0 24 24"><path d="M12 5V2L7 6.5 12 11V8a6 6 0 1 1-6 6H4a8 8 0 1 0 8-9z"/><text x="12" y="17.2" text-anchor="middle" font-size="7.5" font-weight="700" font-family="Inter,sans-serif">10</text></svg>',
+  fwd:   '<svg viewBox="0 0 24 24"><path d="M12 5V2l5 4.5L12 11V8a6 6 0 1 0 6 6h2a8 8 0 1 1-8-9z"/><text x="12" y="17.2" text-anchor="middle" font-size="7.5" font-weight="700" font-family="Inter,sans-serif">10</text></svg>',
+  vol:   '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>',
+  mute:  '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3zm13.6 3 2.4-2.4-1.4-1.4-2.4 2.4-2.4-2.4-1.4 1.4 2.4 2.4-2.4 2.4 1.4 1.4 2.4-2.4 2.4 2.4 1.4-1.4-2.4-2.4z"/></svg>',
+  full:  '<svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z"/></svg>',
+  exit:  '<svg viewBox="0 0 24 24"><path d="M8 4h2v6H4V8h4V4zm6 0h2v4h4v2h-6V4zM4 14h6v6H8v-4H4v-2zm10 0h6v2h-4v4h-2v-6z"/></svg>'
+};
+
+function _vpFmt(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = Math.floor(s % 60);
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+}
+
+// Wraps a <video> element in a clean, custom control layer and mounts it in bodyEl.
+function mountVideoPlayer(video, bodyEl) {
+  if (bodyEl._vpCleanup) { try { bodyEl._vpCleanup(); } catch (e) {} }
+  video.controls = false;
+  video.removeAttribute('controls');
+  video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.setAttribute('controlsList', 'nodownload');
+  video.setAttribute('disablePictureInPicture', '');
+  video.oncontextmenu = () => false;
+  video.removeAttribute('style');
+
+  const root = document.createElement('div');
+  root.className = 'vp paused loading';
+  root.tabIndex = 0;
+  root.innerHTML = `
+    <div class="vp-ripple l"><span class="vp-rt">−10s</span></div>
+    <div class="vp-ripple r"><span class="vp-rt">+10s</span></div>
+    <div class="vp-spin"></div>
+    <button class="vp-big" aria-label="Play">${VP_ICON.play}</button>
+    <div class="vp-msg">This video can’t be played right now.<br>Please check your connection and try again.</div>
+    <div class="vp-shade"></div>
+    <div class="vp-menu" role="menu"></div>
+    <div class="vp-bar">
+      <div class="vp-seek" role="slider" aria-label="Seek">
+        <div class="vp-track"><div class="vp-buf"></div><div class="vp-fill"></div><div class="vp-thumb"></div></div>
+        <div class="vp-tip">0:00</div>
+      </div>
+      <div class="vp-row">
+        <button class="vp-btn vp-pp" aria-label="Play / Pause">${VP_ICON.play}</button>
+        <button class="vp-btn vp-back" aria-label="Back 10 seconds">${VP_ICON.back}</button>
+        <button class="vp-btn vp-fwd" aria-label="Forward 10 seconds">${VP_ICON.fwd}</button>
+        <div class="vp-time"><span class="vp-cur">0:00</span> <i>/</i> <span class="vp-dur">0:00</span></div>
+        <div class="vp-gap"></div>
+        <div class="vp-vol"><input type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume"><button class="vp-btn vp-mute" aria-label="Mute">${VP_ICON.vol}</button></div>
+        <button class="vp-btn vp-speed" aria-label="Playback speed">1×</button>
+        <button class="vp-btn vp-fs" aria-label="Fullscreen">${VP_ICON.full}</button>
+      </div>
+    </div>`;
+  root.insertBefore(video, root.firstChild);
+  bodyEl.innerHTML = '';
+  bodyEl.appendChild(root);
+
+  const $ = s => root.querySelector(s);
+  const seek = $('.vp-seek'), fill = $('.vp-fill'), buf = $('.vp-buf'), thumb = $('.vp-thumb'), tip = $('.vp-tip');
+  const cur = $('.vp-cur'), dur = $('.vp-dur'), pp = $('.vp-pp'), big = $('.vp-big');
+  const muteBtn = $('.vp-mute'), volIn = $('.vp-vol input'), speedBtn = $('.vp-speed'), fsBtn = $('.vp-fs'), menu = $('.vp-menu');
+  const isTouch = matchMedia('(hover: none)').matches;
+  if (isTouch) { root.classList.add('touch'); $('.vp-vol').style.display = 'none'; }
+
+  let hideT = null, dragging = false;
+  const showUI = () => {
+    root.classList.remove('hide-ui');
+    clearTimeout(hideT);
+    if (!video.paused && !dragging && !menu.classList.contains('open')) hideT = setTimeout(() => root.classList.add('hide-ui'), 2800);
+  };
+  const toggle = () => { video.paused ? video.play().catch(() => {}) : video.pause(); };
+  const skip = d => { video.currentTime = Math.max(0, Math.min((video.duration || 1e9), video.currentTime + d)); showUI(); };
+  const paint = () => {
+    const d = video.duration || 0, t = video.currentTime || 0, p = d ? (t / d) * 100 : 0;
+    fill.style.width = p + '%'; thumb.style.left = p + '%';
+    cur.textContent = _vpFmt(t); dur.textContent = _vpFmt(d);
+    if (video.buffered.length) {
+      let end = 0;
+      for (let i = 0; i < video.buffered.length; i++) if (video.buffered.start(i) <= t + 0.5) end = Math.max(end, video.buffered.end(i));
+      buf.style.width = (d ? (end / d) * 100 : 0) + '%';
+    }
+  };
+
+  // Playback state
+  video.addEventListener('play',    () => { root.classList.remove('paused'); pp.innerHTML = VP_ICON.pause; big.innerHTML = VP_ICON.pause; showUI(); });
+  video.addEventListener('pause',   () => { root.classList.add('paused');    pp.innerHTML = VP_ICON.play;  big.innerHTML = VP_ICON.play;  showUI(); });
+  video.addEventListener('timeupdate', () => { if (!dragging) paint(); });
+  video.addEventListener('progress', paint);
+  video.addEventListener('durationchange', paint);
+  video.addEventListener('loadedmetadata', () => { paint(); root.classList.remove('loading'); });
+  video.addEventListener('canplay',  () => root.classList.remove('loading'));
+  video.addEventListener('playing',  () => root.classList.remove('loading'));
+  video.addEventListener('waiting',  () => root.classList.add('loading'));
+  video.addEventListener('seeking',  () => root.classList.add('loading'));
+  video.addEventListener('seeked',   () => root.classList.remove('loading'));
+  video.addEventListener('volumechange', () => {
+    muteBtn.innerHTML = (video.muted || video.volume === 0) ? VP_ICON.mute : VP_ICON.vol;
+    volIn.value = video.muted ? 0 : video.volume;
+  });
+  video.addEventListener('error', () => { root.classList.remove('loading'); root.classList.add('error'); });
+
+  // Buttons
+  pp.onclick = big.onclick = e => { e.stopPropagation(); toggle(); };
+  $('.vp-back').onclick = e => { e.stopPropagation(); skip(-10); };
+  $('.vp-fwd').onclick  = e => { e.stopPropagation(); skip(10); };
+  muteBtn.onclick = e => { e.stopPropagation(); video.muted = !video.muted; };
+  volIn.oninput = () => { video.muted = false; video.volume = +volIn.value; };
+
+  // Speed menu
+  const speeds = [0.75, 1, 1.25, 1.5, 2];
+  menu.innerHTML = speeds.map(s => `<button data-s="${s}" role="menuitem">${s === 1 ? 'Normal' : s + '×'}</button>`).join('');
+  const markSpeed = () => {
+    menu.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === video.playbackRate));
+    speedBtn.textContent = video.playbackRate + '×';
+  };
+  markSpeed();
+  speedBtn.onclick = e => { e.stopPropagation(); menu.classList.toggle('open'); showUI(); };
+  menu.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    e.stopPropagation(); video.playbackRate = +b.dataset.s; markSpeed(); menu.classList.remove('open'); showUI();
+  };
+
+  // Fullscreen (container where supported; iPhone falls back to the native video fullscreen)
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  fsBtn.onclick = e => {
+    e.stopPropagation();
+    if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    const req = root.requestFullscreen || root.webkitRequestFullscreen;
+    if (req) req.call(root).catch?.(() => {});
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+  };
+  const onFs = () => { fsBtn.innerHTML = fsEl() ? VP_ICON.exit : VP_ICON.full; };
+  document.addEventListener('fullscreenchange', onFs);
+  document.addEventListener('webkitfullscreenchange', onFs);
+
+  // Seek bar (pointer based: mouse, touch, pen)
+  const seekTo = e => {
+    const r = seek.getBoundingClientRect(), p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const t = p * (video.duration || 0);
+    tip.style.left = (p * 100) + '%'; tip.textContent = _vpFmt(t);
+    return { p, t };
+  };
+  seek.addEventListener('pointerdown', e => {
+    e.stopPropagation(); dragging = true; seek.classList.add('drag'); seek.setPointerCapture(e.pointerId);
+    const { p, t } = seekTo(e); fill.style.width = thumb.style.left = (p * 100) + '%'; thumb.style.left = (p * 100) + '%'; cur.textContent = _vpFmt(t);
+    showUI();
+  });
+  seek.addEventListener('pointermove', e => {
+    const { p, t } = seekTo(e);
+    if (dragging) { fill.style.width = (p * 100) + '%'; thumb.style.left = (p * 100) + '%'; cur.textContent = _vpFmt(t); }
+  });
+  const endDrag = e => {
+    if (!dragging) return;
+    dragging = false; seek.classList.remove('drag');
+    const { t } = seekTo(e); if (video.duration) video.currentTime = t; showUI();
+  };
+  seek.addEventListener('pointerup', endDrag);
+  seek.addEventListener('pointercancel', () => { dragging = false; seek.classList.remove('drag'); });
+
+  // Tap / click on the video surface
+  let lastTap = 0, lastSide = '';
+  const flash = side => {
+    const el = root.querySelector('.vp-ripple.' + side); el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 450);
+  };
+  root.addEventListener('click', e => {
+    if (e.target.closest('.vp-bar, .vp-menu, .vp-big')) return;
+    if (menu.classList.contains('open')) { menu.classList.remove('open'); return; }
+    if (!isTouch) { toggle(); return; }             // desktop: click = play / pause
+    const r = root.getBoundingClientRect(), x = e.clientX - r.left, w = r.width;
+    const side = x < w * 0.35 ? 'l' : x > w * 0.65 ? 'r' : 'c', now = Date.now();
+    if (side !== 'c' && now - lastTap < 320 && side === lastSide) { skip(side === 'l' ? -10 : 10); flash(side); lastTap = 0; return; }
+    lastTap = now; lastSide = side;
+    root.classList.contains('hide-ui') ? showUI() : (video.paused ? showUI() : (clearTimeout(hideT), root.classList.add('hide-ui')));
+  });
+  root.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showUI(); });
+  root.addEventListener('dblclick', e => { if (!isTouch && !e.target.closest('.vp-bar')) fsBtn.click(); });
+
+  // Keyboard
+  const onKey = e => {
+    if (!document.getElementById('vidPlayerModal').classList.contains('open')) return;
+    if (e.target.matches('input[type=text], textarea')) return;
+    const k = e.key;
+    if (k === ' ' || k === 'k') { e.preventDefault(); toggle(); }
+    else if (k === 'ArrowLeft')  { e.preventDefault(); skip(-5); }
+    else if (k === 'ArrowRight') { e.preventDefault(); skip(5); }
+    else if (k === 'j') skip(-10); else if (k === 'l') skip(10);
+    else if (k === 'm') video.muted = !video.muted;
+    else if (k === 'f') fsBtn.click();
+    else return;
+    showUI();
+  };
+  document.addEventListener('keydown', onKey);
+
+  bodyEl._vpCleanup = () => {
+    clearTimeout(hideT);
+    document.removeEventListener('keydown', onKey);
+    document.removeEventListener('fullscreenchange', onFs);
+    document.removeEventListener('webkitfullscreenchange', onFs);
+    if (fsEl()) { try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) {} }
+    try { video.pause(); } catch (e) {}
+    bodyEl._vpCleanup = null;
+  };
+  showUI();
+  return video;
+}
+
+// Builds a plain <video> (no native controls) and mounts it with the custom player.
+function mountVideoSrc(bodyEl, src, mime) {
+  const v = document.createElement('video');
+  v.autoplay = true; v.preload = 'auto';
+  mountVideoPlayer(v, bodyEl);
+  if (mime) { const s = document.createElement('source'); s.src = src; s.type = mime; v.appendChild(s); } else v.src = src;
+  v.play && v.play().catch(() => {});
+  return v;
+}
+
+// Drive / YouTube / Vimeo embeds can't be re-skinned, so keep them clean and full-size.
+function mountEmbed(bodyEl, url, hideDrivePopout) {
+  if (bodyEl._vpCleanup) { try { bodyEl._vpCleanup(); } catch (e) {} }
+  bodyEl.innerHTML = `<div class="vp-embed"><iframe src="${url}" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="no-referrer"></iframe>${hideDrivePopout ? '<div class="vp-shield"></div>' : ''}</div>`;
+}
+
 // ── VIDEO PLAYER ─────────────────────────────────
 
 // Fetch a Drive file as a blob URL using token (admin) or API key fallback
@@ -4213,7 +4531,7 @@ async function streamDriveVideo(fileId, bodyEl, token, mimeType) {
   // Helper: render Drive embed iframe (works for ALL video formats — Drive transcodes server-side)
   function useDriveEmbed() {
     const embedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
-    bodyEl.innerHTML = `<iframe src="${embedUrl}" allow="autoplay; fullscreen" allowfullscreen style="width:100%;height:100%;border:none;"></iframe>`;
+    mountEmbed(bodyEl, embedUrl, true);
   }
 
   // ── iOS detection (iPhone, iPad, iPod, iPad Pro) ──
@@ -4221,7 +4539,19 @@ async function streamDriveVideo(fileId, bodyEl, token, mimeType) {
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
   if (isIOS) {
-    // Drive /preview iframe streams natively in Safari — no blobs, no MSE needed.
+    // Try a plain <video> (clean custom controls) against the Drive API; Safari streams it with range requests.
+    // If the file isn't publicly readable or fails to start, fall back to the Drive /preview iframe.
+    if (DRIVE_API_KEY) {
+      const directUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${DRIVE_API_KEY}`;
+      const v = mountVideoSrc(bodyEl, directUrl, mimeType && mimeType.startsWith('video/') ? mimeType : 'video/mp4');
+      let started = false;
+      const fallback = () => { if (!started && bodyEl.contains(v)) useDriveEmbed(); };
+      v.addEventListener('loadedmetadata', () => { started = true; }, { once: true });
+      v.addEventListener('error', fallback, { once: true });
+      const src = v.querySelector('source'); if (src) src.addEventListener('error', fallback, { once: true });
+      setTimeout(fallback, 9000);
+      return;
+    }
     useDriveEmbed();
     return;
   }
@@ -4257,14 +4587,8 @@ async function streamDriveVideo(fileId, bodyEl, token, mimeType) {
         const ms  = new MediaSource();
         const url = URL.createObjectURL(ms);
         const vid = document.createElement('video');
-        vid.controls   = true;
         vid.autoplay   = true;
-        vid.oncontextmenu = () => false;
-        Object.assign(vid.style, { width:'100%', height:'100%', background:'#000' });
-        vid.setAttribute('controlsList','nodownload nofullscreen');
-        vid.setAttribute('disablePictureInPicture','');
-        bodyEl.innerHTML = '';
-        bodyEl.appendChild(vid);
+        mountVideoPlayer(vid, bodyEl);
         vid.src = url;
 
         // If video errors (codec mismatch, non-fragmented MP4, etc.) → fall back to Drive embed
@@ -4327,9 +4651,11 @@ async function streamDriveVideo(fileId, bodyEl, token, mimeType) {
 }
 
 async function playVideo(vb) {
-  document.getElementById('vidPlayerTitle').textContent = '\u25B6 ' + (vb.label || 'Video');
+  const _ttl = document.getElementById('vidPlayerTitle');
+  _ttl.textContent = vb.label || 'Video'; _ttl.title = vb.label || 'Video';
   const body = document.getElementById('vidPlayerBody');
-  body.innerHTML = `<p style="color:var(--ash);padding:40px 20px;text-align:center;font-size:10px;letter-spacing:3px;text-transform:uppercase;">Loading video\u2026</p>`;
+  if (body._vpCleanup) { try { body._vpCleanup(); } catch(e) {} }
+  body.innerHTML = `<div class="vp-load">Loading video\u2026</div>`;
   document.getElementById('vidPlayerModal').classList.add('open');
 
   // Revoke any previous blob URL to free memory
@@ -4350,7 +4676,7 @@ async function playVideo(vb) {
     // Legacy IDB fallback
     const dataUrl = await idbGet('files', vb.fileKey).catch(()=>null);
     if (dataUrl) {
-      body.innerHTML = `<video controls autoplay controlsList="nodownload nofullscreen" disablePictureInPicture oncontextmenu="return false" style="width:100%;height:100%;background:#000;"><source src="${dataUrl}">Your browser does not support video.</video>`;
+      mountVideoSrc(body, dataUrl);
       return;
     }
 
@@ -4359,9 +4685,9 @@ async function playVideo(vb) {
   } else if (vb.url) {
     const src = toEmbedUrl(vb.url);
     if (src.embed) {
-      body.innerHTML = `<iframe src="${src.url}" allow="autoplay; fullscreen" allowfullscreen style="width:100%;height:100%;border:none;"></iframe>`;
+      mountEmbed(body, src.url, false);
     } else {
-      body.innerHTML = `<video controls autoplay controlsList="nodownload nofullscreen" disablePictureInPicture oncontextmenu="return false" style="width:100%;height:100%;background:#000;"><source src="${src.url}">Your browser does not support video.</video>`;
+      mountVideoSrc(body, src.url);
     }
   } else {
     body.innerHTML = `<p style="color:var(--ash);padding:40px 20px;text-align:center;">No video source configured.</p>`;
@@ -4372,6 +4698,7 @@ function closeVidPlayer() {
   const body = document.getElementById('vidPlayerBody');
   // Revoke blob URL if any to free memory
   if (body._blobUrl) { URL.revokeObjectURL(body._blobUrl); body._blobUrl = null; }
+  if (body._vpCleanup) { try { body._vpCleanup(); } catch(e) {} }
   document.getElementById('vidPlayerModal').classList.remove('open');
   body.innerHTML = ''; // stop video
 }
