@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyC1MHhOUrUtsDv2KsRs9B1jfgjhtpKwErY',
@@ -14,7 +14,8 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Auto-detect long-polling so writes don't hang silently behind blockers/proxies
+export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 export const googleProvider = new GoogleAuthProvider();
 // Always show the Google account chooser
 googleProvider.setCustomParameters({ prompt: 'select_account' });

@@ -29,7 +29,7 @@ export default function Admin() {
   const [detailId, setDetailId] = useState(null);
   const [statusDraft, setStatusDraft] = useState({});
 
-  const isAdmin = !!user && ADMIN_EMAILS.includes(user.email);
+  const isAdmin = !!user && ADMIN_EMAILS.includes((user.email || '').toLowerCase());
 
   useEffect(() => {
     if (ready && !user) nav('/login', { replace: true });
@@ -66,18 +66,27 @@ export default function Admin() {
   const detail = orders.find((o) => o.id === detailId);
 
   /* ── order actions ── */
-  const deleteOrder = async (id) => {
-    if (!window.confirm(t('admin.confirmDelete'))) return false;
-    try { await deleteDoc(doc(db, 'orders', id)); toast(t('admin.t.deleted')); return true; }
-    catch (e) { toast(t('admin.error', { msg: e.message }), 'error'); return false; }
+  const [busy, setBusy] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+  const withTimeout = (p) => Promise.race([
+    p, new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out – check connection / ad-blocker / Firestore rules')), 10000)),
+  ]);
+  const fail = (e) => { console.error('[admin]', e); toast(t('admin.error', { msg: `${e.code || ''} ${e.message}`.trim() }), 'error'); };
+
+  const deleteOrder = (id) => setConfirmId(id);               // opens in-page confirm (no window.confirm)
+  const doDelete = async () => {
+    const id = confirmId; setConfirmId(null); setBusy(id);
+    try { await withTimeout(deleteDoc(doc(db, 'orders', id))); toast(t('admin.t.deleted'), 'success'); if (detailId === id) setDetailId(null); }
+    catch (e) { fail(e); } finally { setBusy(null); }
   };
   const applyStatus = async (o) => {
     const s = statusDraft[o.id] ?? o.status ?? 'pending';
-    if (s === 'cancelled') { if (await deleteOrder(o.id)) setDetailId(null); return; }
+    if (s === 'cancelled') return setConfirmId(o.id);
+    setBusy(o.id);
     try {
-      await updateDoc(doc(db, 'orders', o.id), { status: s, updatedAt: serverTimestamp() });
+      await withTimeout(updateDoc(doc(db, 'orders', o.id), { status: s, updatedAt: serverTimestamp() }));
       toast(t('admin.t.updated', { s: t(`status.${s}`).toUpperCase() }), 'success');
-    } catch (e) { toast(t('admin.error', { msg: e.message }), 'error'); }
+    } catch (e) { fail(e); } finally { setBusy(null); }
   };
 
   if (!ready) return <div className="page-loading"><span className="spinner big" /></div>;
@@ -169,8 +178,8 @@ export default function Admin() {
                             {o.status === 'cancelled' ? <span className="muted small">{t('admin.cancelledNote')}</span> : (
                               <>
                                 {StatusSelect({ o })}
-                                <button className="btn btn-primary btn-sm" onClick={() => applyStatus(o)}>{t('admin.update')}</button>
-                                <button className="btn btn-danger btn-sm" onClick={() => deleteOrder(o.id)}>{t('admin.cancelOrder')}</button>
+                                <button className="btn btn-primary btn-sm" disabled={busy === o.id} onClick={() => applyStatus(o)}>{t('admin.update')}</button>
+                                <button className="btn btn-danger btn-sm" disabled={busy === o.id} onClick={() => deleteOrder(o.id)}>{t('admin.cancelOrder')}</button>
                               </>
                             )}
                           </td>
@@ -186,6 +195,20 @@ export default function Admin() {
           <RatingsPanel ratings={ratings} orders={orders} blocked={blocked} t={t} toast={toast} locale={locale} />
         </div>
       </section>
+
+      {confirmId && (
+        <div className="modal-bg" style={{ zIndex: 700 }} onClick={(e) => { if (e.target === e.currentTarget) setConfirmId(null); }}>
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="modal-body">
+              <p>{t('admin.confirmDelete')}</p>
+              <div className="row gap">
+                <button className="btn btn-danger btn-sm" onClick={doDelete}>{t('admin.cancelOrder')}</button>
+                <button className="btn btn-sm" onClick={() => setConfirmId(null)}>✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {detail && (
         <div className="modal-bg" onClick={(e) => { if (e.target === e.currentTarget) setDetailId(null); }}>
@@ -226,8 +249,8 @@ export default function Admin() {
                   <div className="muted small">{t('admin.d.updateStatus')}</div>
                   <div className="row gap">
                     {StatusSelect({ o: detail })}
-                    <button className="btn btn-primary btn-sm" onClick={() => applyStatus(detail)}>{t('admin.update')}</button>
-                    <button className="btn btn-danger btn-sm" onClick={async () => { if (await deleteOrder(detail.id)) setDetailId(null); }}>{t('admin.cancelOrder')}</button>
+                    <button className="btn btn-primary btn-sm" disabled={busy === detail.id} onClick={() => applyStatus(detail)}>{t('admin.update')}</button>
+                    <button className="btn btn-danger btn-sm" disabled={busy === detail.id} onClick={() => deleteOrder(detail.id)}>{t('admin.cancelOrder')}</button>
                   </div>
                 </div>
               )}

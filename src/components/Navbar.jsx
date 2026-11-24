@@ -28,7 +28,7 @@ export default function Navbar() {
   }, [menu]);
 
   const name = user ? (user.displayName || user.email.split('@')[0]) : '';
-  const isAdmin = user && ADMIN_EMAILS.includes(user.email);
+  const isAdmin = user && ADMIN_EMAILS.includes((user.email || '').toLowerCase());
   const logout = async () => { await signOut(); nav('/login'); };
 
   const links = (
