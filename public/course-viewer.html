@@ -4559,15 +4559,23 @@ async function streamDriveVideo(fileId, bodyEl, token, mimeType) {
         if (!r.ok) { let t = ''; try { t = (await r.text()).slice(0, 160); } catch(e) {} dbg(r.status + ' ' + t); continue; }
         if (!/video|octet-stream/.test(ct)) { dbg('unexpected content-type ' + ct); continue; }
         const v = mountVideoSrc(bodyEl, url, mimeType && mimeType.startsWith('video/') ? mimeType : 'video/mp4');
-        await new Promise(res => {
-          let done = false; const end = ok => { if (!done) { done = true; res(ok); } };
-          v.addEventListener('loadedmetadata', () => end(true), { once: true });
-          v.addEventListener('error', () => end(false), { once: true });
-          const sEl = v.querySelector('source'); if (sEl) sEl.addEventListener('error', () => end(false), { once: true });
-          setTimeout(() => end(false), 8000);
-        }).then(ok => { if (ok) throw 'OK'; dbg('video element error ' + (v.error ? v.error.code + ' ' + (v.error.message||'') : '(timeout)')); });
+        const state = await new Promise(res => {
+          let done = false; const end = x => { if (!done) { done = true; res(x); } };
+          v.addEventListener('loadedmetadata', () => end('ready'), { once: true });
+          v.addEventListener('error', () => end('error'), { once: true });
+          const sEl = v.querySelector('source'); if (sEl) sEl.addEventListener('error', () => end('error'), { once: true });
+          setTimeout(() => end('wait'), 3500);   // iOS often waits for a tap before loading
+        });
+        if (state === 'error') { dbg('video element error ' + (v.error ? v.error.code + ' ' + (v.error.message||'') : '')); continue; }
+        // 'ready' or 'wait': keep the custom player. Show the play button and let the viewer's tap start loading.
+        const rootEl = bodyEl.querySelector('.vp'); if (rootEl) rootEl.classList.remove('loading');
+        v.addEventListener('error', () => { dbg('playback error ' + (v.error ? v.error.code : '')); useDriveEmbed(); }, { once: true });
+        v.addEventListener('play', () => {
+          const t = setTimeout(() => { dbg('no playback 12s after tap'); useDriveEmbed(); }, 12000);
+          v.addEventListener('playing', () => clearTimeout(t), { once: true });
+        }, { once: true });
+        return;
       } catch (e) {
-        if (e === 'OK') return;      // playing with the custom player
         dbg('fetch blocked: ' + (e && e.message || e));
       }
     }
