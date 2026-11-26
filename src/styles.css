@@ -590,12 +590,10 @@ input:focus, .select:focus { border-color: #8b0000; box-shadow: 0 0 0 3px rgba(1
   box-shadow: 0 0 30px rgba(139,0,0,.55), 0 0 80px rgba(139,0,0,.25); transition: box-shadow 1.4s ease; }
 .skull.is-speaking .skull-frame { box-shadow: 0 0 40px rgba(255,20,20,.7), 0 0 110px rgba(220,20,60,.4); }
 .skull-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; pointer-events: none; }
-.skull-jaw { transform: translateY(calc(var(--jaw) * 2.6%)); will-change: transform; }
 .skull-eyes { opacity: 0; transition: opacity 1.6s ease; }
 .skull.is-speaking .skull-eyes { opacity: 1; animation: skullEyePulse 2.4s ease-in-out infinite; }
 @keyframes skullEyePulse { 0%,100% { filter: brightness(.9); } 50% { filter: brightness(1.35); } }
 .skull:not(.is-speaking) .skull-frame { animation: skullBreathe 5s ease-in-out infinite; }
 @keyframes skullBreathe { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-.skull-caption { max-width: 520px; font-size: .95rem; line-height: 1.7; color: #d9c3c3; margin: 0; }
-@media (max-width: 860px) { .skull { align-items: center; } .skull-frame { width: 210px; height: 210px; } .skull-caption { text-align: center; } }
+@media (max-width: 860px) { .skull { align-items: center; } .skull-frame { width: 210px; height: 210px; } }
 @media (prefers-reduced-motion: reduce) { .skull:not(.is-speaking) .skull-frame, .skull.is-speaking .skull-eyes { animation: none; } }
