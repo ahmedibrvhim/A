@@ -35,48 +35,109 @@ const DRIVE_API_KEY = 'AIzaSyBLZfVie22Xs4ugjcgIw4IWjhhOrYiL0e8'; // ← paste yo
 
 let _driveTokenClient = null;
 let _driveAccessToken = null;
-
-// Load GIS (Google Identity Services) for token — rejects instead of hanging forever
-let _driveAuthPromise = null;
 let _driveTokenExpiry = 0;
+let _driveAuthPending = null; // { resolve, reject, timer } while a Google popup is open
+
+// Pre-load Google Identity Services at page load. The popup MUST be opened synchronously
+// from a real click — if we load the script / await anything first, the browser blocks it.
+(function preloadGis() {
+  if (document.getElementById('gisScript')) return;
+  const sc = document.createElement('script');
+  sc.id = 'gisScript';
+  sc.src = 'https://accounts.google.com/gsi/client';
+  sc.async = true;
+  document.head.appendChild(sc);
+})();
+
+function _settleDriveAuth(fn, v) {
+  const p = _driveAuthPending;
+  if (!p) return;
+  _driveAuthPending = null;
+  clearTimeout(p.timer);
+  p.hideModal && p.hideModal();
+  fn === 'resolve' ? p.resolve(v) : p.reject(v);
+}
+
+function _getDriveTokenClient() {
+  if (_driveTokenClient) return _driveTokenClient;
+  if (!(window.google && google.accounts && google.accounts.oauth2)) return null;
+  _driveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: DRIVE_SCOPE,
+    callback: (resp) => {
+      if (resp && resp.access_token) {
+        _driveAccessToken = resp.access_token;
+        _driveTokenExpiry = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
+        _settleDriveAuth('resolve', resp.access_token);
+      } else {
+        _settleDriveAuth('reject', new Error('Google authorization failed: ' + ((resp && (resp.error_description || resp.error)) || 'no token')));
+      }
+    },
+    error_callback: (err) => {
+      const t = err && err.type;
+      const msg = t === 'popup_failed_to_open' ? 'Google popup was blocked. Allow pop-ups for this site and try again.'
+                : t === 'popup_closed' ? 'Google sign-in window was closed before finishing.'
+                : 'Google sign-in error: ' + ((err && (err.message || err.type)) || 'unknown');
+      _settleDriveAuth('reject', new Error(msg));
+    }
+  });
+  return _driveTokenClient;
+}
+
+// Must be called directly inside a click handler.
+function _openDrivePopup() {
+  const client = _getDriveTokenClient();
+  if (!client) {
+    _settleDriveAuth('reject', new Error('Google sign-in script not loaded yet. Check your connection / ad-blocker and try again.'));
+    return;
+  }
+  // Drive may belong to a DIFFERENT Google account than the website login, so always show
+  // the account chooser (no login_hint) and let the admin pick the Drive account.
+  try {
+    client.requestAccessToken({ prompt: 'select_account' });
+  } catch (e) { _settleDriveAuth('reject', e); }
+}
+
+// Small modal: gives us a fresh user click so the Google popup is never blocked.
+function _showDriveAuthModal() {
+  let m = document.getElementById('driveAuthModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'driveAuthModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.8);padding:16px;';
+    m.innerHTML =
+      '<div style="background:#0d0d0d;border:1px solid #8b0000;max-width:380px;width:100%;padding:24px;text-align:center;font-family:Inter,sans-serif;color:#eee;">' +
+      '<div style="font-size:15px;font-weight:600;margin-bottom:10px;">Connect Google Drive</div>' +
+      '<div style="font-size:13px;opacity:.75;line-height:1.5;margin-bottom:18px;">To upload or delete files, Google needs access to the Drive account where the files are stored. A Google window will open &mdash; choose the Google account that owns the Drive folder and allow access.</div>' +
+      '<button id="driveAuthGo" style="background:#8b0000;color:#fff;border:0;padding:11px 22px;cursor:pointer;font-weight:600;margin-right:8px;">Continue with Google</button>' +
+      '<button id="driveAuthCancel" style="background:transparent;color:#aaa;border:1px solid #444;padding:11px 18px;cursor:pointer;">Cancel</button>' +
+      '</div>';
+    document.body.appendChild(m);
+    m.querySelector('#driveAuthGo').addEventListener('click', _openDrivePopup);
+    m.querySelector('#driveAuthCancel').addEventListener('click', () => _settleDriveAuth('reject', new Error('Google authorization cancelled.')));
+  }
+  m.style.display = 'flex';
+  return () => { m.style.display = 'none'; };
+}
+
+// Returns a valid Drive access token. Opens the Google popup directly when the browser still
+// considers us inside a click; otherwise shows the "Continue with Google" modal first.
 function loadDriveAuth() {
   if (_driveAccessToken && Date.now() < _driveTokenExpiry) return Promise.resolve(_driveAccessToken);
-  if (_driveAuthPromise) return _driveAuthPromise;
-  _driveAuthPromise = new Promise((resolve, reject) => {
-    let done = false;
-    const finish = (fn, v) => { if (done) return; done = true; clearTimeout(timer); _driveAuthPromise = null; fn(v); };
-    const timer = setTimeout(() => finish(reject, new Error('Google sign-in timed out. Allow pop-ups for this site and try again.')), 60000);
-    const start = () => {
-      try {
-        _driveTokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: DRIVE_SCOPE,
-          callback: (resp) => {
-            if (resp && resp.access_token) {
-              _driveAccessToken = resp.access_token;
-              _driveTokenExpiry = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
-              finish(resolve, resp.access_token);
-            } else {
-              finish(reject, new Error('Google authorization failed: ' + ((resp && (resp.error_description || resp.error)) || 'no token')));
-            }
-          },
-          error_callback: (err) => finish(reject, new Error('Google sign-in error: ' + (err && (err.message || err.type) || 'popup blocked or closed')))
-        });
-        _driveTokenClient.requestAccessToken({ prompt: '' });
-      } catch (e) { finish(reject, e); }
-    };
-    if (window.google && google.accounts && google.accounts.oauth2) { start(); return; }
-    let script = document.getElementById('gisScript');
-    if (!script) {
-      script = document.createElement('script');
-      script.id = 'gisScript';
-      script.src = 'https://accounts.google.com/gsi/client';
-      document.head.appendChild(script);
-    }
-    script.addEventListener('load', start, { once: true });
-    script.addEventListener('error', () => finish(reject, new Error('Could not load Google sign-in script')), { once: true });
+  if (_driveAuthPending) return new Promise((res, rej) => {
+    const p = _driveAuthPending, r0 = p.resolve, j0 = p.reject;
+    p.resolve = v => { r0(v); res(v); }; p.reject = e => { j0(e); rej(e); };
   });
-  return _driveAuthPromise;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => _settleDriveAuth('reject', new Error('Google sign-in timed out. Allow pop-ups for this site and try again.')), 120000);
+    _driveAuthPending = { resolve, reject, timer };
+    const gestureLive = navigator.userActivation && navigator.userActivation.isActive;
+    if (gestureLive && _getDriveTokenClient()) {
+      _openDrivePopup();
+    } else {
+      _driveAuthPending.hideModal = _showDriveAuthModal();
+    }
+  });
 }
 
 // ── VIDEO COMPRESSION ────────────────────────────
@@ -293,15 +354,19 @@ async function uploadToDrive(file, fileName) {
   return { fileId, publicUrl, pdfUrl, embedUrl, streamUrl };
 }
 
-// Delete a file from Drive (admin cleanup)
-async function deleteFromDrive(fileId) {
-  try {
-    const token = _driveAccessToken || await loadDriveAuth();
-    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-      method: 'DELETE',
-      headers: { Authorization: 'Bearer ' + token }
-    });
-  } catch(e) { console.warn('Drive delete failed:', e); }
+// Delete a file from Drive (admin cleanup). Returns true if gone, throws on a real failure.
+async function deleteFromDrive(fileId, _retried) {
+  const token = await loadDriveAuth();
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (res.ok || res.status === 404) return true; // 404 = already gone / not created by this app
+  if (res.status === 401 && !_retried) { // token expired/revoked → get a new one once
+    _driveAccessToken = null; _driveTokenExpiry = 0;
+    return deleteFromDrive(fileId, true);
+  }
+  throw new Error('Drive delete failed (' + res.status + ')');
 }
 </script>
 <script>
@@ -393,7 +458,7 @@ async function checkAccess(user) {
   }
 
   // Admin always has access
-  if (user.email === ADMIN_EMAIL) {
+  if (user.email && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
     showAccessGranted(() => {
       gate.style.display = 'none';
       document.getElementById('appShell').style.display = '';
@@ -455,7 +520,8 @@ async function checkAccess(user) {
 }
 
 onAuthStateChanged(auth, user => {
-  window.IS_ADMIN = !!(user && user.email === ADMIN_EMAIL);
+  window.IS_ADMIN = !!(user && user.email && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+  window._currentUserEmail = user && user.email || "";
   window._currentUserId = user ? user.uid : null;
   checkAccess(user); // run access check on every auth state change
   applyRole();
@@ -2635,7 +2701,7 @@ async function handleCoverImageUpload(e) {
     hideLoading();
     showToast('✅ Cover image saved!');
 
-    if (old?.fileId) deleteFromDrive(old.fileId); // best-effort, non-blocking
+    if (old?.fileId) deleteFromDrive(old.fileId).catch(e => console.warn('Drive delete failed:', e));
   } catch(err) {
     hideLoading();
     showToast('⚠ Cover upload failed: ' + (err && err.message || err));
@@ -2650,7 +2716,7 @@ async function handleRemoveCoverImage() {
   try {
     // Delete from Drive (needs the fileId stored in Firestore)
     const record = await window.loadDriveFileRecord?.('cover_image').catch(()=>null);
-    if (record?.fileId) deleteFromDrive(record.fileId); // best-effort, never blocks
+    if (record?.fileId) deleteFromDrive(record.fileId).catch(e => console.warn('Drive delete failed:', e));
     // Delete Firestore record
     await window.deleteDriveFileRecord?.('cover_image').catch(()=>{});
     // Delete from IDB legacy fallback too
@@ -3255,9 +3321,13 @@ async function handleGlobalPdfUpload(e) {
   const files = Array.from(e.target.files);
   e.target.value = '';
   
-  files.forEach(async file => {
-    if (file.type !== 'application/pdf') return;
-    
+  // Authorize ONCE up front (before any await) so the Google popup isn't blocked
+  const pdfs = files.filter(f => f.type === 'application/pdf');
+  if (!pdfs.length) return;
+  try { await loadDriveAuth(); }
+  catch (err) { showToast('⚠ ' + err.message); return; }
+
+  for (const file of pdfs) {
     showLoading(`Uploading ${file.name} to Drive…`);
     try {
       const key = genId();
@@ -3284,7 +3354,7 @@ async function handleGlobalPdfUpload(e) {
       showToast('⚠ Upload failed: ' + err.message);
       console.error(err);
     }
-  });
+  }
 }
 
 function renamePdf(key) {
@@ -3307,9 +3377,15 @@ async function confirmDeletePdf(key) {
     'Delete PDF',
     `Delete "${pdf.name}"? Chapters using it will lose their PDF attachment.`,
     async () => {
-      // Delete from Drive
+      // Get Drive authorization FIRST (still inside the click), before any other await
+      let driveOk = true;
+      let authP = loadDriveAuth().catch(err => { driveOk = false; showToast('⚠ ' + err.message); return null; });
+      await authP;
       const record = await window.loadDriveFileRecord?.('pdf_' + key).catch(()=>null);
-      if (record?.fileId) await deleteFromDrive(record.fileId);
+      if (record?.fileId && driveOk) {
+        try { await deleteFromDrive(record.fileId); }
+        catch (err) { driveOk = false; console.error(err); showToast('⚠ Removed from site, but Drive file not deleted: ' + err.message); }
+      }
       await window.deleteDriveFileRecord?.('pdf_' + key).catch(()=>{});
       // Also clean up IDB fallback
       idbDelete('files', 'pdf_' + key).catch(()=>{});
@@ -3319,7 +3395,7 @@ async function confirmDeletePdf(key) {
       await saveState();
       renderPdfManager();
       buildSidebar();
-      showToast('PDF deleted');
+      if (driveOk) showToast('PDF deleted');
     }
   );
 }
@@ -3350,7 +3426,7 @@ async function loadPdfFromDriveId(fileId) {
     }
 
     // Last resort: prompt sign-in (only hits if no API key and not signed in)
-    if (!res || !res.ok) {
+    if ((!res || !res.ok) && window.IS_ADMIN) {
       const token = await loadDriveAuth();
       res = await fetch(
         `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
@@ -4098,7 +4174,7 @@ function createVidBtnEl(container, vb) {
         if (removed.fileKey) {
           // Delete from Drive
           const record = await window.loadDriveFileRecord?.(removed.fileKey).catch(()=>null);
-          if (record?.fileId) deleteFromDrive(record.fileId);
+          if (record?.fileId) deleteFromDrive(record.fileId).catch(e => console.warn('Drive delete failed:', e));
           window.deleteDriveFileRecord?.(removed.fileKey).catch(()=>{});
           idbDelete('files', removed.fileKey).catch(()=>{});
         }
