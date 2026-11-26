@@ -2504,7 +2504,7 @@ function defaultMeta() {
       }
     ],
     pdfs: {},        // key → { name, size }
-    videoButtons: {} // chapterId → [{ id, page, xPct, yPct, label, url, fileKey? }]
+    videoButtons: {} // chapterId → [{ id, page, xPct, yPct, pos:{ar,en}, label, url, fileKey? }]
   };
 }
 
@@ -4153,7 +4153,8 @@ async function confirmAttachVideo() {
     const newBtn = {
       id:         newId,
       page:       pendingPlacement.pageNum,
-      xPct:       pendingPlacement.xPct,
+      // base (Arabic) position; if placed on the English PDF, store its mirror so English shows where you clicked
+      xPct:       currentPdfLang() === 'en' ? parseFloat((100 - pendingPlacement.xPct).toFixed(2)) : pendingPlacement.xPct,
       yPct:       pendingPlacement.yPct,
       label,
       url:        url || null,
@@ -4183,9 +4184,33 @@ async function confirmAttachVideo() {
 }
 
 // ── RENDER VIDEO BUTTONS onto a page container ───
+// Each button has a position per PDF language: vb.pos = { ar:{page,xPct,yPct}, en:{...} }
+// If a language has no saved position of its own, it shows the MIRROR of the other one
+// (Arabic is right-to-left, English left-to-right, so x becomes 100 - x).
+// Older buttons (only page/xPct/yPct) are treated as the Arabic position.
+function currentPdfLang() {
+  return (activeChapterId && chapterLang[activeChapterId]) || 'ar';
+}
+function _mirrorPos(p) {
+  return { page: p.page, xPct: parseFloat((100 - p.xPct).toFixed(2)), yPct: p.yPct };
+}
+function getVbPos(vb, lang) {
+  lang = lang || currentPdfLang();
+  const own = vb.pos && vb.pos[lang];
+  if (own) return own;                                   // explicitly set for this language
+  const legacy = { page: vb.page, xPct: vb.xPct, yPct: vb.yPct };   // base = Arabic position
+  if (lang === 'ar') return legacy;
+  return _mirrorPos((vb.pos && vb.pos.ar) || legacy);    // English = mirror of Arabic
+}
+function setVbPos(vb, lang, posObj) {
+  if (!vb.pos) vb.pos = {};
+  vb.pos[lang] = posObj;                                 // only this language; the other follows (mirrored)
+}
+
 function renderVideoButtonsOnPage(container, pageNum) {
   if (!activeChapterId) return;
-  const buttons = (state.videoButtons[activeChapterId] || []).filter(b => b.page === pageNum);
+  const lang = currentPdfLang();
+  const buttons = (state.videoButtons[activeChapterId] || []).filter(b => getVbPos(b, lang).page === pageNum);
   buttons.forEach(vb => {
     createVidBtnEl(container, vb);
   });
@@ -4196,8 +4221,9 @@ function createVidBtnEl(container, vb) {
   el.className = 'vid-btn' + (window.IS_ADMIN ? ' admin-movable' : '');
   el.title = vb.label;
   el.innerHTML = `▶<span class="vid-btn-label">${escHtml(vb.label)}</span>`;
-  el.style.left = vb.xPct + '%';
-  el.style.top  = vb.yPct + '%';
+  const _pos = getVbPos(vb);
+  el.style.left = _pos.xPct + '%';
+  el.style.top  = _pos.yPct + '%';
   el.style.transform = 'translate(-50%, -50%)';
 
   // Delete button — admin only
@@ -4254,11 +4280,13 @@ function makeDraggable(el, container, vb) {
     if (e.button !== 0) return;               // left mouse button only
     if (e.target.closest('.vid-btn-del')) return;
 
+    const lang      = currentPdfLang();          // move only this language's position
+    const startPos  = getVbPos(vb, lang);
     const rect      = container.getBoundingClientRect();
     const startX    = e.clientX;
     const startY    = e.clientY;
-    const startLeft = (vb.xPct / 100) * rect.width;
-    const startTop  = (vb.yPct / 100) * rect.height;
+    const startLeft = (startPos.xPct / 100) * rect.width;
+    const startTop  = (startPos.yPct / 100) * rect.height;
     let moved = false;
 
     function onMove(ev) {
@@ -4270,10 +4298,11 @@ function makeDraggable(el, container, vb) {
       const r = container.getBoundingClientRect();
       const newLeft = Math.max(0, Math.min(r.width,  startLeft + dx));
       const newTop  = Math.max(0, Math.min(r.height, startTop  + dy));
-      vb.xPct = parseFloat((newLeft / r.width  * 100).toFixed(2));
-      vb.yPct = parseFloat((newTop  / r.height * 100).toFixed(2));
-      el.style.left = vb.xPct + '%';
-      el.style.top  = vb.yPct + '%';
+      const xPct = parseFloat((newLeft / r.width  * 100).toFixed(2));
+      const yPct = parseFloat((newTop  / r.height * 100).toFixed(2));
+      setVbPos(vb, lang, { page: startPos.page, xPct, yPct });
+      el.style.left = xPct + '%';
+      el.style.top  = yPct + '%';
     }
 
     function onUp() {
