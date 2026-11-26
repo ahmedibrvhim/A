@@ -3,9 +3,9 @@ import { useLang } from '../i18n/LangContext.jsx';
 
 /*
   Talking skull.
-  1) If /public/voice/en.mp3 (or ar.mp3) exists, it plays that file and the jaw follows the real audio volume.
-  2) If not, it uses the browser's built-in voice (free, no download) and the jaw moves on a simulated rhythm.
-  Eyes fade to red while speaking.
+  Main mode: plays /voice/en.mp3 or /voice/ar.mp3; the jaw follows the real audio volume.
+  Backup mode (if the mp3 can't play): browser voice with a simulated jaw.
+  Everything resets (jaw closed, eyes dark) when speech ends.
 */
 export default function SkullSpeaker() {
   const { t, lang } = useLang();
@@ -14,108 +14,101 @@ export default function SkullSpeaker() {
   const rafRef = useRef(0);
   const audioRef = useRef(null);
   const ctxRef = useRef(null);
-  const stopRef = useRef(() => {});
+  const pollRef = useRef(0);
 
   const setJaw = (v) => rootRef.current && rootRef.current.style.setProperty('--jaw', v.toFixed(3));
 
   const stop = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
+    clearInterval(pollRef.current);
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (audioRef.current) { audioRef.current.onended = null; audioRef.current.onerror = null; audioRef.current.pause(); audioRef.current = null; }
     setJaw(0);
     setSpeaking(false);
   }, []);
-  stopRef.current = stop;
 
-  // stop if language changes or page closes
   useEffect(() => { stop(); }, [lang, stop]);
-  useEffect(() => () => { stopRef.current(); if (ctxRef.current) ctxRef.current.close().catch(() => {}); }, []);
+  useEffect(() => () => { stop(); if (ctxRef.current) ctxRef.current.close().catch(() => {}); }, [stop]);
 
-  async function audioFileExists(url) {
-    try {
-      const r = await fetch(url, { method: 'HEAD' });
-      return r.ok && (r.headers.get('content-type') || '').includes('audio');
-    } catch (e) { return false; }
-  }
-
-  async function playFile(url) {
-    const audio = new Audio(url);
-    audioRef.current = audio;
+  // ---- main mode: real audio file, lip-sync from volume ----
+  function playFile() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!ctxRef.current) ctxRef.current = new AC();
     const ctx = ctxRef.current;
-    if (ctx.state === 'suspended') await ctx.resume();
+    ctx.resume && ctx.resume();
+
+    const audio = new Audio(`/voice/${lang}.mp3`);
+    audio.preload = 'auto';
+    audioRef.current = audio;
 
     const src = ctx.createMediaElementSource(audio);
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    // deep + eerie: low boost and a soft echo
-    const low = ctx.createBiquadFilter(); low.type = 'lowshelf'; low.frequency.value = 220; low.gain.value = 7;
-    const echo = ctx.createDelay(); echo.delayTime.value = 0.14;
-    const fb = ctx.createGain(); fb.gain.value = 0.28;
-    const wet = ctx.createGain(); wet.gain.value = 0.35;
-    src.connect(low); low.connect(analyser); low.connect(ctx.destination);
-    low.connect(echo); echo.connect(fb); fb.connect(echo); echo.connect(wet); wet.connect(ctx.destination);
+    analyser.fftSize = 1024;
+    src.connect(analyser);
+    analyser.connect(ctx.destination);
 
     const buf = new Uint8Array(analyser.fftSize);
-    let smooth = 0;
+    let jaw = 0;
     const tick = () => {
       analyser.getByteTimeDomainData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
       const rms = Math.sqrt(sum / buf.length);
-      const target = Math.min(1, rms * 6);
-      smooth += (target - smooth) * 0.45;
-      setJaw(smooth);
+      const target = rms < 0.015 ? 0 : Math.min(1, (rms - 0.015) * 7);   // gate small noise
+      jaw += (target - jaw) * (target > jaw ? 0.55 : 0.25);               // quick open, slower close
+      setJaw(jaw);
       rafRef.current = requestAnimationFrame(tick);
     };
+
     audio.onended = stop;
-    audio.onerror = stop;
-    await audio.play();
+    audio.onerror = () => { stop(); playBrowserVoice(); };
+    const p = audio.play();             // called directly inside the tap (needed on iPhone)
     setSpeaking(true);
     tick();
+    if (p && p.catch) p.catch(() => { stop(); playBrowserVoice(); });
   }
 
+  // ---- backup mode: built-in browser voice ----
   function playBrowserVoice() {
     const synth = window.speechSynthesis;
-    if (!synth) return false;
-    const u = new SpeechSynthesisUtterance(t('home.skull.script'));
+    if (!synth) return;
+    const text = t('home.skull.script');
+    const u = new SpeechSynthesisUtterance(text);
     u.lang = lang === 'ar' ? 'ar-SA' : 'en-US';
-    u.pitch = 0.1;   // deep
-    u.rate = 0.82;   // slow, ominous
+    u.pitch = 0.3; u.rate = 0.85;
     const voices = synth.getVoices().filter(v => v.lang.toLowerCase().startsWith(lang));
-    u.voice = voices.find(v => /male|david|daniel|george|alex|google uk english male/i.test(v.name)) || voices[0] || null;
-    u.onend = stop;
-    u.onerror = stop;
+    u.voice = voices.find(v => /male|david|daniel|george|alex/i.test(v.name)) || voices[0] || null;
+    u.onend = stop; u.onerror = stop;
     synth.cancel();
     synth.speak(u);
     setSpeaking(true);
+
     const start = performance.now();
     const tick = () => {
       const s = (performance.now() - start) / 1000;
-      const v = Math.abs(Math.sin(s * 9)) * 0.6 + Math.abs(Math.sin(s * 23.7)) * 0.4;
-      setJaw(Math.min(1, v));
+      setJaw(Math.min(1, Math.abs(Math.sin(s * 8)) * 0.55 + Math.abs(Math.sin(s * 13.3)) * 0.3));
       rafRef.current = requestAnimationFrame(tick);
     };
     tick();
-    return true;
+    // iPhone Safari sometimes never fires "end", so also watch the speaking flag and a time limit
+    const maxMs = Math.max(8000, text.length * 120 / u.rate);
+    clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      const elapsed = performance.now() - start;
+      if ((elapsed > 1500 && !synth.speaking) || elapsed > maxMs) stop();
+    }, 400);
   }
 
-  async function toggle() {
+  function toggle() {
     if (speaking) { stop(); return; }
-    const url = `/voice/${lang}.mp3`;
-    try {
-      if (await audioFileExists(url)) { await playFile(url); return; }
-    } catch (e) { console.error(e); stop(); }
-    playBrowserVoice();
+    try { playFile(); } catch (e) { console.error(e); stop(); playBrowserVoice(); }
   }
 
   return (
     <div className={'skull' + (speaking ? ' is-speaking' : '')} ref={rootRef}>
       <div className="skull-frame">
         <img src="/skull-base.png" alt="" className="skull-layer" />
-        <span className="skull-eye skull-eye-l" />
-        <span className="skull-eye skull-eye-r" />
+        <img src="/skull-eyes.png" alt="" className="skull-layer skull-eyes" />
         <img src="/skull-jaw.png" alt="" className="skull-layer skull-jaw" />
       </div>
       <button type="button" className="btn btn-ghost skull-btn" onClick={toggle}>
