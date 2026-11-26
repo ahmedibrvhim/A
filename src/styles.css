@@ -590,9 +590,11 @@ input:focus, .select:focus { border-color: #8b0000; box-shadow: 0 0 0 3px rgba(1
   box-shadow: 0 0 30px rgba(139,0,0,.55), 0 0 80px rgba(139,0,0,.25); transition: box-shadow 1.4s ease; }
 .skull.is-speaking .skull-frame { box-shadow: 0 0 40px rgba(255,20,20,.7), 0 0 110px rgba(220,20,60,.4); }
 .skull-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; pointer-events: none; }
-.skull-eyes { opacity: 0; transition: opacity 1.6s ease; }
-.skull.is-speaking .skull-eyes { opacity: 1; animation: skullEyePulse 2.4s ease-in-out infinite; }
-@keyframes skullEyePulse { 0%,100% { filter: brightness(.9); } 50% { filter: brightness(1.35); } }
+.skull-eyes { opacity: 0; mix-blend-mode: screen; filter: brightness(.6); transition: opacity .9s cubic-bezier(.4,0,.2,1), filter .9s ease; }
+.skull.is-speaking .skull-eyes { opacity: 1; filter: brightness(1); animation: skullEyeIgnite .9s ease-out 1, skullEyePulse 2.6s ease-in-out .9s infinite; }
+/* ignite: ember flickers on, then settles into a slow menacing pulse */
+@keyframes skullEyeIgnite { 0% { opacity: 0; } 18% { opacity: .55; } 28% { opacity: .15; } 50% { opacity: .9; } 62% { opacity: .5; } 100% { opacity: 1; } }
+@keyframes skullEyePulse { 0%,100% { opacity: .85; filter: brightness(.9); } 45% { opacity: 1; filter: brightness(1.35); } 50% { opacity: .92; filter: brightness(1.15); } 55% { opacity: 1; filter: brightness(1.4); } }
 .skull:not(.is-speaking) .skull-frame { animation: skullBreathe 5s ease-in-out infinite; }
 @keyframes skullBreathe { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @media (max-width: 860px) { .skull { align-items: center; } .skull-frame { width: 210px; height: 210px; } }
