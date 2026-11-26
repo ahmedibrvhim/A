@@ -2325,7 +2325,14 @@ body,html{font-family:'Inter','Cairo',system-ui,sans-serif}
       <div class="pdf-manager-empty">No PDFs uploaded yet</div>
     </div>
     <div class="pdf-manager-upload admin-only">
-      <label class="pm-upload-label" for="globalPdfUpload">
+      <div id="pmLangPickWrap" style="display:none;margin-bottom:8px;text-align:center;font-size:11px;letter-spacing:1px;color:var(--ash);">
+        Language of the PDF you upload:
+        <select id="pmUploadLang" onchange="renderPdfManager()" style="background:#0d0d0d;color:#eee;border:1px solid #444;padding:5px 8px;margin-left:6px;">
+          <option value="ar">🇪🇬 Arabic</option>
+          <option value="en">🇬🇧 English</option>
+        </select>
+      </div>
+      <label class="pm-upload-label" for="globalPdfUpload" id="pmUploadLabel">
         Upload New PDF
       </label>
       <input type="file" id="globalPdfUpload" accept=".pdf" multiple style="display:none" onchange="handleGlobalPdfUpload(event)">
@@ -3211,6 +3218,8 @@ let pdfManagerTargetLang = 'ar';
 function openPdfManager(targetChId, lang) {
   pdfManagerTargetChId = targetChId || null;
   pdfManagerTargetLang = lang || 'ar';
+  const sel = document.getElementById('pmUploadLang');
+  if (sel) sel.value = pdfManagerTargetLang;
   document.getElementById('pdfManager').classList.add('open');
   setTimeout(renderPdfManager, 10); // Small delay ensures DOM is ready
 }
@@ -3221,11 +3230,34 @@ function closePdfManager() {
   pdfManagerTargetLang = 'ar';
 }
 
+// Language of a PDF: explicit tag, else inferred from how it is attached (older uploads have no tag)
+function pdfLangOf(key) {
+  const p = state.pdfs[key];
+  if (p && p.lang) return p.lang;
+  if (state.chapters.some(c => c.pdfEnKey === key)) return 'en';
+  if (state.chapters.some(c => c.pdfKey === key)) return 'ar';
+  return null; // unknown / legacy & unused
+}
+// Language the next upload will be tagged with
+function currentUploadLang() {
+  if (pdfManagerTargetChId) return pdfManagerTargetLang || 'ar';
+  const sel = document.getElementById('pmUploadLang');
+  return sel ? sel.value : 'ar';
+}
+
 function renderPdfManager() {
   const body = document.getElementById('pdfManagerBody');
   if (!body) return; // Safety check
-  
-  const keys = Object.keys(state.pdfs || {});
+
+  // Arabic and English PDFs stay separate: when attaching for a language, only list that language
+  const allKeys = Object.keys(state.pdfs || {});
+  const keys = pdfManagerTargetChId
+    ? allKeys.filter(k => { const l = pdfLangOf(k); return !l || l === pdfManagerTargetLang; })
+    : allKeys;
+  const pickWrap = document.getElementById('pmLangPickWrap');
+  if (pickWrap) pickWrap.style.display = pdfManagerTargetChId ? 'none' : '';
+  const upLbl = document.getElementById('pmUploadLabel');
+  if (upLbl) upLbl.textContent = currentUploadLang() === 'en' ? 'Upload New ENGLISH PDF' : 'Upload New ARABIC PDF';
   let heading = '';
   
   if (pdfManagerTargetChId) {
@@ -3240,7 +3272,7 @@ function renderPdfManager() {
 
   if (!keys.length) {
     body.innerHTML = heading + `<div class="pdf-manager-empty">
-      No PDFs uploaded yet.<br><strong>Drag & drop or click to upload ✦</strong>
+      No ${pdfManagerTargetChId ? (pdfManagerTargetLang === 'en' ? 'English' : 'Arabic') + ' ' : ''}PDFs uploaded yet.<br><strong>Use the upload button below ✦</strong>
     </div>`;
     return;
   }
@@ -3248,12 +3280,14 @@ function renderPdfManager() {
   body.innerHTML = heading + keys.map(key => {
     const pdf = state.pdfs[key];
     const sizeKb = Math.round((pdf.size || 0) / 1024);
-    const attached = state.chapters.filter(ch => ch.pdfKey === key).length;
+    const attached = state.chapters.filter(ch => ch.pdfKey === key || ch.pdfEnKey === key).length;
+    const lg = pdfLangOf(key);
+    const badge = lg === 'en' ? '🇬🇧 EN' : lg === 'ar' ? '🇪🇬 AR' : '';
     return `<div class="pdf-item" onclick="pdfManagerItemClick('${key}')">
       <div class="pdf-item-icon">📄</div>
       <div class="pdf-item-info">
         <div class="pdf-item-name">${escHtml(pdf.name)}</div>
-        <div class="pdf-item-meta">${sizeKb}KB • ${attached ? 'In use' : 'Available'}</div>
+        <div class="pdf-item-meta">${badge ? badge + ' • ' : ''}${sizeKb}KB • ${attached ? 'In use' : 'Available'}</div>
       </div>
       <div class="pdf-item-actions" onclick="event.stopPropagation()">
         <button class="pdf-icon-btn" onclick="previewPdf('${key}')" title="Preview">👁</button>
@@ -3270,6 +3304,12 @@ async function pdfManagerItemClick(key) {
   if (pdfManagerTargetChId) {
     const ch = state.chapters.find(c => c.id === pdfManagerTargetChId);
     if (ch) {
+      const existing = pdfLangOf(key);
+      if (existing && existing !== pdfManagerTargetLang) {
+        showToast(`⚠ This is an ${existing === 'en' ? 'English' : 'Arabic'} PDF — pick a ${pdfManagerTargetLang === 'en' ? 'English' : 'Arabic'} one`);
+        return;
+      }
+      state.pdfs[key].lang = pdfManagerTargetLang;
       if (pdfManagerTargetLang === 'en') {
         ch.pdfEnKey = key;
       } else {
@@ -3322,6 +3362,7 @@ async function handleGlobalPdfUpload(e) {
   e.target.value = '';
   
   // Authorize ONCE up front (before any await) so the Google popup isn't blocked
+  const upLang = currentUploadLang(); // captured now (manager state may change during upload)
   const pdfs = files.filter(f => f.type === 'application/pdf');
   if (!pdfs.length) return;
   try { await loadDriveAuth(); }
@@ -3339,7 +3380,8 @@ async function handleGlobalPdfUpload(e) {
       // Only metadata in local state
       state.pdfs[key] = {
         name: file.name.replace(/\.pdf$/i, ''),
-        size: file.size
+        size: file.size,
+        lang: upLang
       };
       await saveState();
       renderPdfManager();
@@ -3391,7 +3433,7 @@ async function confirmDeletePdf(key) {
       idbDelete('files', 'pdf_' + key).catch(()=>{});
       delete state.pdfs[key];
       // Detach from chapters
-      state.chapters.forEach(ch => { if (ch.pdfKey === key) ch.pdfKey = null; });
+      state.chapters.forEach(ch => { if (ch.pdfKey === key) ch.pdfKey = null; if (ch.pdfEnKey === key) ch.pdfEnKey = null; });
       await saveState();
       renderPdfManager();
       buildSidebar();
