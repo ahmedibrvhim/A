@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { useLang } from '../i18n/LangContext.jsx';
+import SkullSpeaker from '../components/SkullSpeaker.jsx';
 
 const Icon = {
   book: <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16zM4 19.5A2.5 2.5 0 0 1 6.5 17H20" />,
@@ -59,7 +60,7 @@ export default function Home() {
       <section className="hero">
         <div className="container hero-grid">
           <div className="hero-copy">
-            <img src="/Skull.png" alt="" className="hero-portrait" />
+            <SkullSpeaker />
             <span className="eyebrow">{t('home.eyebrow')}</span>
             <h1 className="display">{t('home.title')}</h1>
             <p className="lead">{t('home.subtitle')}</p>
