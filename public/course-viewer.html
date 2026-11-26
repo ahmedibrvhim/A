@@ -1652,6 +1652,7 @@ html,body,.canvas-wrap{touch-action:pan-x pan-y;}
   box-shadow: 0 0 0 5px rgba(220,20,60,.4), 0 6px 24px rgba(0,0,0,.8);
   animation: none;
 }
+.vid-btn.admin-movable { cursor: grab; }
 .vid-btn.dragging {
   transform: scale(1.2);
   animation: none;
@@ -4192,7 +4193,7 @@ function renderVideoButtonsOnPage(container, pageNum) {
 
 function createVidBtnEl(container, vb) {
   const el = document.createElement('button');
-  el.className = 'vid-btn';
+  el.className = 'vid-btn' + (window.IS_ADMIN ? ' admin-movable' : '');
   el.title = vb.label;
   el.innerHTML = `▶<span class="vid-btn-label">${escHtml(vb.label)}</span>`;
   el.style.left = vb.xPct + '%';
@@ -4241,42 +4242,58 @@ function createVidBtnEl(container, vb) {
   container.appendChild(el);
 }
 
-// ── DRAGGABLE ────────────────────────────────────
+// ── DRAGGABLE (mouse only, admin only) ───────────
+// Lets the admin reposition a video button by dragging it with the mouse.
+// Touch is intentionally ignored, so on phones/tablets the button only opens the video.
 function makeDraggable(el, container, vb) {
-  let dragging = false, startX, startY, startLeft, startTop;
+  if (!window.IS_ADMIN) return;               // students can never move buttons
+
+  const DRAG_THRESHOLD = 4;                   // px of movement before it counts as a drag
 
   el.addEventListener('mousedown', e => {
-    if (delEl && e.target === delEl) return;
-    dragging = true;
-    el.classList.add('dragging');
-    const rect = container.getBoundingClientRect();
-    startX    = e.clientX;
-    startY    = e.clientY;
-    startLeft = (vb.xPct / 100) * rect.width;
-    startTop  = (vb.yPct / 100) * rect.height;
-    e.preventDefault();
-  });
+    if (e.button !== 0) return;               // left mouse button only
+    if (e.target.closest('.vid-btn-del')) return;
 
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    const rect = container.getBoundingClientRect();
-    const dx   = e.clientX - startX;
-    const dy   = e.clientY - startY;
-    const newLeft = Math.max(0, Math.min(rect.width,  startLeft + dx));
-    const newTop  = Math.max(0, Math.min(rect.height, startTop  + dy));
-    const newXPct = (newLeft / rect.width  * 100);
-    const newYPct = (newTop  / rect.height * 100);
-    el.style.left = newXPct + '%';
-    el.style.top  = newYPct + '%';
-    vb.xPct = parseFloat(newXPct.toFixed(2));
-    vb.yPct = parseFloat(newYPct.toFixed(2));
-  });
+    const rect      = container.getBoundingClientRect();
+    const startX    = e.clientX;
+    const startY    = e.clientY;
+    const startLeft = (vb.xPct / 100) * rect.width;
+    const startTop  = (vb.yPct / 100) * rect.height;
+    let moved = false;
 
-  document.addEventListener('mouseup', e => {
-    if (!dragging) return;
-    dragging = false;
-    el.classList.remove('dragging');
-    saveState(); // persist new position
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      if (!moved) { moved = true; el.classList.add('dragging'); }
+
+      const r = container.getBoundingClientRect();
+      const newLeft = Math.max(0, Math.min(r.width,  startLeft + dx));
+      const newTop  = Math.max(0, Math.min(r.height, startTop  + dy));
+      vb.xPct = parseFloat((newLeft / r.width  * 100).toFixed(2));
+      vb.yPct = parseFloat((newTop  / r.height * 100).toFixed(2));
+      el.style.left = vb.xPct + '%';
+      el.style.top  = vb.yPct + '%';
+    }
+
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      el.classList.remove('dragging');
+      if (moved) {
+        // Swallow the click that the browser fires right after mouseup,
+        // otherwise dropping the button would also open the video.
+        const swallow = ev => { ev.stopImmediatePropagation(); ev.preventDefault(); };
+        el.addEventListener('click', swallow, true);
+        setTimeout(() => el.removeEventListener('click', swallow, true), 0);
+        saveState();                          // persist new position
+      }
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault();                       // no text selection / native drag while moving
+    e.stopPropagation();                      // don't trigger the page-pan handler
   });
 }
 
