@@ -5,7 +5,7 @@ import { useLang } from '../i18n/LangContext.jsx';
   Talking skull.
   Main mode: plays /voice/en.mp3 or /voice/ar.mp3; the jaw follows the real audio volume.
   Backup mode (if the mp3 can't play): browser voice with a simulated jaw.
-  Everything resets (jaw closed, eyes dark) when speech ends.
+  Everything resets (jaw closed) when speech ends.
 */
 export default function SkullSpeaker() {
   const { t, lang } = useLang();
@@ -137,7 +137,6 @@ export default function SkullSpeaker() {
     <div className={'skull' + (speaking ? ' is-speaking' : '')} ref={rootRef}>
       <div className="skull-frame">
         <img src="/skull-base.png" alt="" className="skull-layer" />
-        <img src="/skull-eyes.png" alt="" className="skull-layer skull-eyes" />
         <canvas ref={canvasRef} width="512" height="512" className="skull-layer" />
       </div>
       <button type="button" className="btn btn-ghost skull-btn" onClick={toggle}>
