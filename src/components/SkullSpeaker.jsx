@@ -19,7 +19,8 @@ export default function SkullSpeaker() {
   const canvasRef = useRef(null);
   const eyesRef = useRef(null);          // eye-socket expression layer
   const speakingRef = useRef(false);
-  const levelRef = useRef(0);            // current mouth openness 0..1 (drives expression strength)
+  const levelRef = useRef(0);            // current mouth openness 0..1
+  const rawRef = useRef(0);              // raw voice loudness (not clipped like the jaw) -> drives the eye expressions
   const sheetRef = useRef(null);
   const frameRef = useRef({ k: 0, t: 0 });
 
@@ -35,6 +36,7 @@ export default function SkullSpeaker() {
   // v = 0..1 mouth openness. force=true skips the speed limit (used for closing).
   const setJaw = (v, force) => {
     levelRef.current = v;
+    if (!audioRef.current) rawRef.current = v * 0.2;   // backup voice: use the simulated jaw as loudness
     const now = performance.now();
     const k = Math.max(0, Math.min(FRAMES - 1, Math.round(v * (FRAMES - 1))));
     const f = frameRef.current;
@@ -53,8 +55,11 @@ export default function SkullSpeaker() {
 
 
   // ---- eye-socket expressions ----
+  // Driven by the voice, not random. The loudness of the voice is split into:
+  //   stress  = loudness now compared with the recent average -> stressed syllables snap the brows down and pinch them inward
+  //   pauses  = quiet gaps between words / phrases              -> brows relax
+  //   peaks   = the very loudest moments                        -> sockets widen a little
   // The brow/socket area of the skull is copied, tilted / squeezed / shifted and blended back in with a soft edge.
-  // Parameters: drop (brow down), tilt (inner end down = angry, up = sad), squint (narrow), wide (open up).
   useEffect(() => { speakingRef.current = speaking; }, [speaking]);
 
   useEffect(() => {
@@ -71,22 +76,10 @@ export default function SkullSpeaker() {
     img.src = '/skull-base.png';
 
     const EYES = [{ cx: 207, cy: 265, sgn: 1 }, { cx: 322, cy: 263, sgn: -1 }];
-    const NEUTRAL = { drop: 0, tilt: 0, squint: 0, wide: 0 };
-    const MOODS = {
-      angry:  { drop: 1,  tilt: 0.22,  squint: 0.8, wide: 0 },
-      squint: { drop: 0.6, tilt: 0.06, squint: 1,   wide: 0 },
-      wide:   { drop: 0,  tilt: 0,     squint: 0,   wide: 1 },
-      sad:    { drop: 0.3, tilt: -0.2, squint: 0,   wide: 0.2 },
-    };
-    const speakPool = ['angry', 'angry', 'squint', 'wide', 'sad'];
-    const idlePool = ['squint', 'angry'];
-    const cur = { ...NEUTRAL }, tgt = { ...NEUTRAL };
-    let raf = 0, last = performance.now(), nextAt = last + 2500, holdUntil = 0, drawn = false, wasTalking = false;
-
-    const setMood = (name, amp) => {
-      const m = name ? MOODS[name] : NEUTRAL;
-      for (const k in NEUTRAL) tgt[k] = m[k] * amp;
-    };
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const cur = { drop: 0, tilt: 0, squint: 0, wide: 0 };
+    let raf = 0, last = performance.now(), drawn = false;
+    let slow = 0, fast = 0, active = 0;   // analysis state
 
     const drawEye = (cx, cy, sgn, e) => {
       const ang = sgn * e.tilt;
@@ -117,28 +110,30 @@ export default function SkullSpeaker() {
     const loop = (now) => {
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       const talking = speakingRef.current;
-      if (talking !== wasTalking) {            // speech started or ended: restart the schedule
-        wasTalking = talking; holdUntil = 0;
-        if (talking) nextAt = now; else { setMood(null, 1); nextAt = now + 2500; }
-      }
-      if (now >= nextAt) {
-        if (talking) {
-          setMood(speakPool[Math.floor(Math.random() * speakPool.length)], 0.7 + Math.random() * 0.3);
-          nextAt = now + 700 + Math.random() * 900;
-        } else if (!holdUntil) {                // small idle twitch, then back to neutral
-          setMood(idlePool[Math.floor(Math.random() * idlePool.length)], 0.35);
-          holdUntil = now + 700; nextAt = holdUntil;
-        } else {
-          setMood(null, 1); holdUntil = 0; nextAt = now + 3000 + Math.random() * 4000;
-        }
-      }
-      const k = 1 - Math.exp(-dt * (talking ? 7 : 5));
+      const level = talking ? levelRef.current : 0;          // 0..1 mouth openness (same signal as the jaw)
+
+      // --- analyse the voice ---
+      const e = talking ? rawRef.current / 0.2 : 0;               // ~0..1.4, typical speech about 0.7
+      fast += (e - fast) * (1 - Math.exp(-dt / 0.07));            // syllable-level loudness
+      slow += (e - slow) * (1 - Math.exp(-dt / 1.2));             // phrase-level average
+      active += ((talking ? 1 : 0) - active) * (1 - Math.exp(-dt / 0.5));   // fade the effect in/out around speech
+      const stress = clamp((fast - slow) / 0.35, -1, 1);
+      const push = Math.max(stress, 0);                           // stressed syllable
+      const calm = clamp(1 - fast / 0.4, 0, 1);                   // pause / very quiet
+      const peak = clamp((fast - 0.8) / 0.25, 0, 1);               // loudest moments
+
+      // --- map the voice to the face ---
+      const target = {
+        drop:   active * clamp((0.3 + 0.55 * push + 0.15 * slow) * (1 - 0.7 * calm), 0, 1.2),
+        tilt:   active * (0.08 + 0.16 * push + 0.04 * slow) * (1 - 0.6 * calm),
+        squint: active * clamp((0.25 + 0.45 * push) * (1 - 0.7 * calm) - 0.25 * peak, 0, 1),
+        wide:   active * 0.5 * peak * (1 - 0.6 * push),
+      };
+      const k = 1 - Math.exp(-dt * 12);                          // follows quickly, but smooth (no jitter)
       let moving = false;
       for (const key in cur) {
-        // while talking the mouth volume adds a little extra intensity
-        const goal = tgt[key] * (talking ? 0.85 + 0.3 * levelRef.current : 1);
-        cur[key] += (goal - cur[key]) * k;
-        if (Math.abs(goal - cur[key]) > 0.002 || Math.abs(cur[key]) > 0.01) moving = true;
+        cur[key] += (target[key] - cur[key]) * k;
+        if (Math.abs(cur[key]) > 0.004) moving = true;
       }
       if (ready && moving) {
         ctx.clearRect(0, 0, 512, 512);
@@ -159,6 +154,7 @@ export default function SkullSpeaker() {
     clearInterval(pollRef.current);
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
     if (audioRef.current) { audioRef.current.onended = null; audioRef.current.onerror = null; audioRef.current.pause(); audioRef.current = null; }
+    rawRef.current = 0;
     setJaw(0, true);
     setSpeaking(false);
   }, []);
@@ -190,6 +186,7 @@ export default function SkullSpeaker() {
       let sum = 0;
       for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
       const rms = Math.sqrt(sum / buf.length);
+      rawRef.current = rms;
       const target = rms < 0.015 ? 0 : Math.min(1, (rms - 0.015) * 7);   // gate small noise
       jaw += (target - jaw) * (target > jaw ? 0.5 : 0.2);                // quick open, slower close
       setJaw(jaw);
