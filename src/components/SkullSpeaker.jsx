@@ -128,10 +128,10 @@ export default function SkullSpeaker() {
       // --- map to a gentle expression ---
       const calm = 1 - 0.95 * quiet;
       const target = {
-        drop:   active * calm * (0.14 + 0.3 * push),
-        tilt:   active * calm * (0.04 + 0.07 * push),
-        squint: active * calm * (0.12 + 0.22 * push),
-        wide:   active * 0.22 * peak,
+        drop:   active * calm * (0.18 + 0.38 * push),
+        tilt:   active * calm * (0.05 + 0.09 * push),
+        squint: active * calm * (0.15 + 0.28 * push),
+        wide:   active * 0.28 * peak,
       };
       const k = 1 - Math.exp(-dt * 3.5);                           // slow, smooth follow
       let delta = 0, moving = false;
