@@ -17,6 +17,9 @@ export default function SkullSpeaker() {
   const pollRef = useRef(0);
 
   const canvasRef = useRef(null);
+  const eyesRef = useRef(null);          // eye-socket expression layer
+  const speakingRef = useRef(false);
+  const levelRef = useRef(0);            // current mouth openness 0..1 (drives expression strength)
   const sheetRef = useRef(null);
   const frameRef = useRef({ k: 0, t: 0 });
 
@@ -31,6 +34,7 @@ export default function SkullSpeaker() {
   };
   // v = 0..1 mouth openness. force=true skips the speed limit (used for closing).
   const setJaw = (v, force) => {
+    levelRef.current = v;
     const now = performance.now();
     const k = Math.max(0, Math.min(FRAMES - 1, Math.round(v * (FRAMES - 1))));
     const f = frameRef.current;
@@ -45,6 +49,109 @@ export default function SkullSpeaker() {
     img.onload = () => drawFrame(0);
     img.src = '/skull-mouth.png';
     sheetRef.current = img;
+  }, []);
+
+
+  // ---- eye-socket expressions ----
+  // The brow/socket area of the skull is copied, tilted / squeezed / shifted and blended back in with a soft edge.
+  // Parameters: drop (brow down), tilt (inner end down = angry, up = sad), squint (narrow), wide (open up).
+  useEffect(() => { speakingRef.current = speaking; }, [speaking]);
+
+  useEffect(() => {
+    const canvas = eyesRef.current;
+    if (!canvas) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ctx = canvas.getContext('2d');
+    const tmp = document.createElement('canvas');
+    tmp.width = 160; tmp.height = 100;
+    const tctx = tmp.getContext('2d');
+    const img = new Image();
+    let ready = false;
+    img.onload = () => { ready = true; };
+    img.src = '/skull-base.png';
+
+    const EYES = [{ cx: 207, cy: 265, sgn: 1 }, { cx: 322, cy: 263, sgn: -1 }];
+    const NEUTRAL = { drop: 0, tilt: 0, squint: 0, wide: 0 };
+    const MOODS = {
+      angry:  { drop: 1,  tilt: 0.22,  squint: 0.8, wide: 0 },
+      squint: { drop: 0.6, tilt: 0.06, squint: 1,   wide: 0 },
+      wide:   { drop: 0,  tilt: 0,     squint: 0,   wide: 1 },
+      sad:    { drop: 0.3, tilt: -0.2, squint: 0,   wide: 0.2 },
+    };
+    const speakPool = ['angry', 'angry', 'squint', 'wide', 'sad'];
+    const idlePool = ['squint', 'angry'];
+    const cur = { ...NEUTRAL }, tgt = { ...NEUTRAL };
+    let raf = 0, last = performance.now(), nextAt = last + 2500, holdUntil = 0, drawn = false, wasTalking = false;
+
+    const setMood = (name, amp) => {
+      const m = name ? MOODS[name] : NEUTRAL;
+      for (const k in NEUTRAL) tgt[k] = m[k] * amp;
+    };
+
+    const drawEye = (cx, cy, sgn, e) => {
+      const ang = sgn * e.tilt;
+      const sy = 1 - e.squint * 0.3 + e.wide * 0.22, sx = 1 + e.wide * 0.1;
+      const dy = e.drop * 5 - e.wide * 3;
+      tctx.globalCompositeOperation = 'source-over';
+      tctx.clearRect(0, 0, 160, 100);
+      tctx.save();
+      tctx.translate(80, 50 + dy);
+      tctx.rotate(ang);
+      tctx.scale(sx, sy);
+      tctx.translate(-cx, -cy);
+      tctx.drawImage(img, 0, 0);
+      tctx.restore();
+      // soft elliptical edge so the moved patch blends into the untouched skull
+      tctx.globalCompositeOperation = 'destination-in';
+      tctx.save();
+      tctx.translate(80, 47);
+      tctx.scale(66, 40);
+      const g = tctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(0.55, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      tctx.fillStyle = g;
+      tctx.beginPath(); tctx.arc(0, 0, 1, 0, Math.PI * 2); tctx.fill();
+      tctx.restore();
+      ctx.drawImage(tmp, cx - 80, cy - 50);
+    };
+
+    const loop = (now) => {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const talking = speakingRef.current;
+      if (talking !== wasTalking) {            // speech started or ended: restart the schedule
+        wasTalking = talking; holdUntil = 0;
+        if (talking) nextAt = now; else { setMood(null, 1); nextAt = now + 2500; }
+      }
+      if (now >= nextAt) {
+        if (talking) {
+          setMood(speakPool[Math.floor(Math.random() * speakPool.length)], 0.7 + Math.random() * 0.3);
+          nextAt = now + 700 + Math.random() * 900;
+        } else if (!holdUntil) {                // small idle twitch, then back to neutral
+          setMood(idlePool[Math.floor(Math.random() * idlePool.length)], 0.35);
+          holdUntil = now + 700; nextAt = holdUntil;
+        } else {
+          setMood(null, 1); holdUntil = 0; nextAt = now + 3000 + Math.random() * 4000;
+        }
+      }
+      const k = 1 - Math.exp(-dt * (talking ? 7 : 5));
+      let moving = false;
+      for (const key in cur) {
+        // while talking the mouth volume adds a little extra intensity
+        const goal = tgt[key] * (talking ? 0.85 + 0.3 * levelRef.current : 1);
+        cur[key] += (goal - cur[key]) * k;
+        if (Math.abs(goal - cur[key]) > 0.002 || Math.abs(cur[key]) > 0.01) moving = true;
+      }
+      if (ready && moving) {
+        ctx.clearRect(0, 0, 512, 512);
+        for (const eye of EYES) drawEye(eye.cx, eye.cy, eye.sgn, cur);
+        drawn = true;
+      } else if (drawn) {
+        ctx.clearRect(0, 0, 512, 512);
+        drawn = false;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   const stop = useCallback(() => {
@@ -137,6 +244,7 @@ export default function SkullSpeaker() {
     <div className={'skull' + (speaking ? ' is-speaking' : '')} ref={rootRef}>
       <div className="skull-frame">
         <img src="/skull-base.png" alt="" className="skull-layer" />
+        <canvas ref={eyesRef} width="512" height="512" className="skull-layer" />
         <canvas ref={canvasRef} width="512" height="512" className="skull-layer" />
       </div>
       <button type="button" className="btn btn-ghost skull-btn" onClick={toggle}>
