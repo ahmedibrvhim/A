@@ -3,17 +3,13 @@ import { useLang } from '../i18n/LangContext.jsx';
 
 /*
   Talking skull.
-  Main mode: plays /voice/en.mp3 or /voice/ar.m4a (see VOICE_FILES); the jaw follows the real audio volume.
+  Main mode: plays /voice/en.mp3 or /voice/ar.mp3; the jaw follows the real audio volume.
   Backup mode (if the mp3 can't play): browser voice with a simulated jaw.
   Everything resets (jaw closed) when speech ends.
 */
-// Your recordings, one per language (the Arabic one is an .m4a, the English one an .mp3).
-const VOICE_FILES = { en: '/voice/en.mp3', ar: '/voice/ar.m4a' };
-
 export default function SkullSpeaker() {
   const { t, lang } = useLang();
   const [speaking, setSpeaking] = useState(false);
-  const [heard, setHeard] = useState(false);   // stops the "tap me" pulse after the first play
   const rootRef = useRef(null);
   const rafRef = useRef(0);
   const audioRef = useRef(null);
@@ -187,7 +183,7 @@ export default function SkullSpeaker() {
     const ctx = ctxRef.current;
     ctx.resume && ctx.resume();
 
-    const audio = new Audio(VOICE_FILES[lang] || VOICE_FILES.en);
+    const audio = new Audio(`/voice/${lang}.mp3`);
     audio.preload = 'auto';
     audioRef.current = audio;
 
@@ -212,7 +208,6 @@ export default function SkullSpeaker() {
     };
 
     audio.onended = stop;
-    setHeard(true);
     audio.onerror = () => { stop(); playBrowserVoice(); };
     const p = audio.play();             // called directly inside the tap (needed on iPhone)
     setSpeaking(true);
@@ -263,7 +258,7 @@ export default function SkullSpeaker() {
         <canvas ref={eyesRef} width="512" height="512" className="skull-layer" />
         <canvas ref={canvasRef} width="512" height="512" className="skull-layer" />
       </div>
-      <button type="button" className={'btn btn-ghost skull-btn' + (!speaking && !heard ? ' is-inviting' : '')} onClick={toggle}>
+      <button type="button" className="btn btn-ghost skull-btn" onClick={toggle}>
         {speaking ? t('home.skull.stop') : t('home.skull.talk')}
       </button>
     </div>
