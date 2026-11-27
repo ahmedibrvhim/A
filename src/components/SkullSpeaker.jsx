@@ -55,12 +55,15 @@ export default function SkullSpeaker() {
 
 
   // ---- eye-socket expressions ----
-  // Driven by the voice, not random. The loudness of the voice is split into:
-  //   stress  = loudness now compared with the recent average -> stressed syllables snap the brows down and pinch them inward
-  //   pauses  = quiet gaps between words / phrases              -> brows relax
-  //   peaks   = the very loudest moments                        -> sockets widen a little
-  // The brow/socket area of the skull is copied, tilted / squeezed / shifted and blended back in with a soft edge.
-  useEffect(() => { speakingRef.current = speaking; }, [speaking]);
+  // Subtle and slow on purpose: the brows follow the phrase (not every syllable), so they never flutter with the jaw.
+  //   phrase emphasis -> brows lower a little and pinch in; pauses -> they relax; rare loud peaks -> sockets open slightly.
+  // Light on the CPU: runs only while speaking (and while settling afterwards), about 30 fps, redraws only when the
+  // pose actually changed, and copies only a small patch around each eye.
+  const wakeRef = useRef(null);
+  useEffect(() => {
+    speakingRef.current = speaking;
+    if (speaking && wakeRef.current) wakeRef.current();
+  }, [speaking]);
 
   useEffect(() => {
     const canvas = eyesRef.current;
@@ -78,21 +81,20 @@ export default function SkullSpeaker() {
     const EYES = [{ cx: 207, cy: 265, sgn: 1 }, { cx: 322, cy: 263, sgn: -1 }];
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const cur = { drop: 0, tilt: 0, squint: 0, wide: 0 };
-    let raf = 0, last = performance.now(), drawn = false;
-    let slow = 0, fast = 0, active = 0;   // analysis state
+    const shown = { drop: -1, tilt: -1, squint: -1, wide: -1 };
+    let raf = 0, last = 0, lastDraw = 0, running = false, drawn = false;
+    let med = 0, long = 0, active = 0;   // analysis state
 
     const drawEye = (cx, cy, sgn, e) => {
-      const ang = sgn * e.tilt;
       const sy = 1 - e.squint * 0.3 + e.wide * 0.22, sx = 1 + e.wide * 0.1;
-      const dy = e.drop * 5 - e.wide * 3;
       tctx.globalCompositeOperation = 'source-over';
       tctx.clearRect(0, 0, 160, 100);
       tctx.save();
-      tctx.translate(80, 50 + dy);
-      tctx.rotate(ang);
+      tctx.translate(80, 50 + e.drop * 5 - e.wide * 3);
+      tctx.rotate(sgn * e.tilt);
       tctx.scale(sx, sy);
       tctx.translate(-cx, -cy);
-      tctx.drawImage(img, 0, 0);
+      tctx.drawImage(img, cx - 90, cy - 60, 180, 120, cx - 90, cy - 60, 180, 120);   // only a small patch
       tctx.restore();
       // soft elliptical edge so the moved patch blends into the untouched skull
       tctx.globalCompositeOperation = 'destination-in';
@@ -108,45 +110,57 @@ export default function SkullSpeaker() {
     };
 
     const loop = (now) => {
-      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (document.hidden) { running = false; return; }          // tab in background: stop completely
+      raf = requestAnimationFrame(loop);
+      if (now - lastDraw < 33) return;                           // ~30 fps is plenty for slow brow movement
+      const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now; lastDraw = now;
       const talking = speakingRef.current;
-      const level = talking ? levelRef.current : 0;          // 0..1 mouth openness (same signal as the jaw)
 
-      // --- analyse the voice ---
-      const e = talking ? rawRef.current / 0.2 : 0;               // ~0..1.4, typical speech about 0.7
-      fast += (e - fast) * (1 - Math.exp(-dt / 0.07));            // syllable-level loudness
-      slow += (e - slow) * (1 - Math.exp(-dt / 1.2));             // phrase-level average
-      active += ((talking ? 1 : 0) - active) * (1 - Math.exp(-dt / 0.5));   // fade the effect in/out around speech
-      const stress = clamp((fast - slow) / 0.35, -1, 1);
-      const push = Math.max(stress, 0);                           // stressed syllable
-      const calm = clamp(1 - fast / 0.4, 0, 1);                   // pause / very quiet
-      const peak = clamp((fast - 0.8) / 0.25, 0, 1);               // loudest moments
+      // --- analyse the voice (slow, phrase level) ---
+      const e = talking ? rawRef.current / 0.2 : 0;               // typical speech about 0.7
+      med  += (e - med)  * (1 - Math.exp(-dt / 0.45));
+      long += (e - long) * (1 - Math.exp(-dt / 2.5));
+      active += ((talking ? 1 : 0) - active) * (1 - Math.exp(-dt / 0.7));
+      const push  = clamp((med - long) / 0.2, 0, 1);               // this phrase is stronger than the recent average
+      const quiet = clamp(1 - med / 0.7, 0, 1);                     // pause between phrases
+      const peak  = clamp((med - 0.95) / 0.25, 0, 1);              // rare very loud moment
 
-      // --- map the voice to the face ---
+      // --- map to a gentle expression ---
+      const calm = 1 - 0.95 * quiet;
       const target = {
-        drop:   active * clamp((0.3 + 0.55 * push + 0.15 * slow) * (1 - 0.7 * calm), 0, 1.2),
-        tilt:   active * (0.08 + 0.16 * push + 0.04 * slow) * (1 - 0.6 * calm),
-        squint: active * clamp((0.25 + 0.45 * push) * (1 - 0.7 * calm) - 0.25 * peak, 0, 1),
-        wide:   active * 0.5 * peak * (1 - 0.6 * push),
+        drop:   active * calm * (0.14 + 0.3 * push),
+        tilt:   active * calm * (0.04 + 0.07 * push),
+        squint: active * calm * (0.12 + 0.22 * push),
+        wide:   active * 0.22 * peak,
       };
-      const k = 1 - Math.exp(-dt * 12);                          // follows quickly, but smooth (no jitter)
-      let moving = false;
+      const k = 1 - Math.exp(-dt * 3.5);                           // slow, smooth follow
+      let delta = 0, moving = false;
       for (const key in cur) {
         cur[key] += (target[key] - cur[key]) * k;
-        if (Math.abs(cur[key]) > 0.004) moving = true;
+        delta = Math.max(delta, Math.abs(cur[key] - shown[key]));
+        if (Math.abs(cur[key]) > 0.004 || Math.abs(target[key] - cur[key]) > 0.004) moving = true;
       }
-      if (ready && moving) {
+      if (ready && moving && delta > 0.012) {                      // redraw only when the pose really changed
         ctx.clearRect(0, 0, 512, 512);
         for (const eye of EYES) drawEye(eye.cx, eye.cy, eye.sgn, cur);
+        for (const key in cur) shown[key] = cur[key];
         drawn = true;
-      } else if (drawn) {
+      } else if (!moving && drawn) {
         ctx.clearRect(0, 0, 512, 512);
         drawn = false;
+        for (const key in shown) shown[key] = -1;
       }
+      if (!talking && !moving) { running = false; cancelAnimationFrame(raf); }   // fully idle: stop the loop
+    };
+    const wake = () => {
+      if (running) return;
+      running = true; last = 0;
       raf = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    wakeRef.current = wake;
+    const onVis = () => { if (!document.hidden && speakingRef.current) wake(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelAnimationFrame(raf); running = false; wakeRef.current = null; document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
   const stop = useCallback(() => {
